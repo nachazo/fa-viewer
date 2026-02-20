@@ -1,0 +1,669 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>FA Viewer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700;9..40,800&display=swap" rel="stylesheet">
+  <style>
+    /* ── Variables ── */
+    :root {
+      --bg: #0c0e14; --card: #13161f; --modal: #161a26;
+      --border: #252a38; --border-h: #3d4560;
+      --text: #e4e8f4; --text2: #b0b8cc; --muted: #5a6380;
+      --poster: #1a1e2e; --btn: #1e2233;
+      --shadow: rgba(0,0,0,.45); --shadowh: rgba(0,0,0,.65);
+      --header: rgba(12,14,20,.96); --accent: #e8a000;
+    }
+    .light {
+      --bg: #eef0f7; --card: #fff; --modal: #fff;
+      --border: #dde2ee; --border-h: #a0adcc;
+      --text: #18202e; --text2: #4a5568; --muted: #8896b0;
+      --poster: #dde2ee; --btn: #e8ecf5;
+      --shadow: rgba(0,0,0,.07); --shadowh: rgba(0,0,0,.16);
+      --header: rgba(238,240,247,.96); --accent: #c78a00;
+    }
+
+    /* ── Reset ── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg); color: var(--text);
+      font-family: 'DM Sans', sans-serif; min-height: 100vh;
+      transition: background .3s, color .3s;
+      -webkit-text-size-adjust: 100%;
+    }
+    @keyframes spin    { to { transform: rotate(360deg); } }
+    @keyframes fadeUp  { from { opacity:0; transform:translateY(10px) } to { opacity:1; transform:translateY(0) } }
+    @keyframes slideUp { from { opacity:0; transform:translateY(24px) } to { opacity:1; transform:translateY(0) } }
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    /* ── HEADER ── */
+    header {
+      position: sticky; top: 0; z-index: 200;
+      background: var(--header); backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+    }
+    .header-inner {
+      max-width: 1440px; margin: 0 auto;
+      padding: 0 16px; height: 56px;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .logo { font-family: 'Playfair Display', serif; font-size: 17px; flex-shrink: 0; line-height: 1.1; }
+    .logo span { color: var(--accent); }
+    .logo small { display: block; font-family: 'DM Sans', sans-serif; font-size: 9px; color: var(--muted); }
+    .filter-group { display: flex; gap: 3px; background: var(--btn); border-radius: 8px; padding: 3px; flex-shrink: 0; }
+    .filter-btn {
+      background: transparent; border: none; color: var(--muted);
+      padding: 5px 10px; border-radius: 6px; cursor: pointer;
+      font-size: 12px; font-weight: 700; font-family: inherit; transition: all .15s;
+    }
+    .filter-btn.active { background: var(--accent); color: #000; }
+    .spacer { flex: 1; min-width: 0; }
+    .count { font-size: 11px; color: var(--muted); flex-shrink: 0; white-space: nowrap; }
+    .count .dc { color: #ef4444; }
+    .icon-btn {
+      background: var(--btn); border: 1px solid var(--border);
+      color: var(--text); padding: 7px 12px; border-radius: 9px;
+      cursor: pointer; font-size: 12px; font-weight: 700;
+      font-family: inherit; display: flex; align-items: center; gap: 5px;
+      flex-shrink: 0; transition: background .15s; white-space: nowrap;
+    }
+    .icon-btn:hover { background: var(--border); }
+    .icon-btn:disabled { opacity: .5; cursor: not-allowed; }
+    .spin { display: inline-block; animation: spin .8s linear infinite; }
+    .progress-bar { height: 3px; background: var(--border); }
+    .progress-fill { height: 100%; background: var(--accent); transition: width .4s ease; }
+
+    /* hide count on very small screens */
+    @media (max-width: 480px) { .count { display: none; } }
+
+    /* ── MAIN ── */
+    main { max-width: 1440px; margin: 0 auto; padding: 16px 12px 60px; }
+
+    /* ── STATUS / ERROR ── */
+    .status-box {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 14px; margin-bottom: 14px;
+      background: var(--btn); border-radius: 10px; border: 1px solid var(--border);
+      animation: fadeUp .3s ease;
+    }
+    .status-spinner { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--border); border-top-color: var(--accent); animation: spin .8s linear infinite; flex-shrink: 0; }
+    .status-text { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .status-right { margin-left: auto; font-size: 11px; color: var(--muted); flex-shrink: 0; }
+    .error-box { padding: 18px 20px; margin-bottom: 14px; background: rgba(127,29,29,.2); border-radius: 12px; border: 1px solid rgba(239,68,68,.3); }
+    .error-title { font-weight: 700; color: #f87171; margin-bottom: 8px; }
+    .error-msg { font-size: 13px; color: #fca5a5; line-height: 1.6; }
+    .retry-btn { margin-top: 12px; background: #7f1d1d; color: #fff; border: none; padding: 8px 18px; border-radius: 8px; cursor: pointer; font-size: 12px; font-weight: 700; font-family: inherit; }
+
+    /* ── GRID ── */
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+      gap: 12px;
+    }
+    @media (min-width: 640px) { .grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 16px; } }
+
+    /* ── CARD ── */
+    .card {
+      background: var(--card); border-radius: 12px; overflow: hidden;
+      cursor: pointer; border: 1px solid var(--border);
+      transition: transform .2s cubic-bezier(.16,1,.3,1), box-shadow .2s, border-color .2s, opacity .2s;
+      box-shadow: 0 2px 8px var(--shadow); animation: fadeUp .4s ease both;
+      position: relative;
+    }
+    .card:hover { transform: translateY(-4px) scale(1.015); box-shadow: 0 16px 40px var(--shadowh); border-color: var(--border-h); }
+    .card.deleted { opacity: .38; border-color: rgba(239,68,68,.4); }
+
+    .poster-wrap { position: relative; padding-top: 148%; background: var(--poster); overflow: hidden; }
+    .poster-wrap img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transition: transform .3s ease; }
+    .card:hover .poster-wrap img { transform: scale(1.05); }
+    .poster-ph { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 32px; color: var(--muted); }
+    .grad { position: absolute; bottom: 0; left: 0; right: 0; height: 55%; background: linear-gradient(to top, rgba(0,0,0,.82) 0%, transparent 100%); pointer-events: none; }
+
+    .type-badge {
+      position: absolute; top: 7px; left: 7px;
+      color: #fff; font-size: 8px; font-weight: 900;
+      padding: 2px 6px; border-radius: 20px; letter-spacing: .1em;
+      text-transform: uppercase; backdrop-filter: blur(4px);
+    }
+    .type-movie  { background: rgba(185,28,28,.85); }
+    .type-series { background: rgba(109,40,217,.85); }
+
+    .rating-badge {
+      position: absolute; bottom: 32px; left: 8px;
+      color: #fbbf24; font-size: 12px; font-weight: 800;
+      text-shadow: 0 1px 4px rgba(0,0,0,.9); pointer-events: none;
+    }
+
+    /* ── DELETE BUTTON — siempre visible en móvil, hover en desktop ── */
+    .del-btn {
+      position: absolute; top: 7px; right: 7px; z-index: 10;
+      width: 28px; height: 28px;
+      background: rgba(0,0,0,.55); border: 1.5px solid rgba(255,255,255,.2);
+      backdrop-filter: blur(4px); border-radius: 50%;
+      color: #fff; font-size: 14px; font-weight: 900;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; transition: all .15s; line-height: 1;
+      /* Desktop: oculto hasta hover */
+      opacity: 0;
+    }
+    /* En desktop: mostrar al hover o si está activo */
+    @media (hover: hover) {
+      .card:hover .del-btn { opacity: 1; }
+    }
+    /* En táctil (móvil/tablet): siempre visible */
+    @media (hover: none) {
+      .del-btn { opacity: 1; }
+    }
+    /* Siempre visible si está marcado */
+    .del-btn.active {
+      opacity: 1 !important;
+      background: rgba(239,68,68,.9);
+      border-color: #ef4444;
+    }
+
+    .del-overlay {
+      position: absolute; inset: 0; background: rgba(239,68,68,.12);
+      display: flex; align-items: center; justify-content: center; pointer-events: none;
+    }
+    .del-label { background: rgba(239,68,68,.9); color: #fff; font-weight: 900; font-size: 9px; letter-spacing: .15em; padding: 4px 10px; border-radius: 4px; transform: rotate(-8deg); text-transform: uppercase; }
+
+    .card-info { padding: 8px 10px 10px; }
+    .card-title { font-size: 12px; font-weight: 600; color: var(--text); line-height: 1.3; font-family: 'Playfair Display', serif; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; margin-bottom: 2px; }
+    .card-meta { font-size: 10px; color: var(--muted); }
+
+    /* ── EMPTY / LOADING ── */
+    .center-msg { text-align: center; padding: 80px 20px; }
+    .big-spinner { width: 48px; height: 48px; border-radius: 50%; border: 3px solid var(--border); border-top-color: var(--accent); animation: spin .9s linear infinite; margin: 0 auto 16px; }
+    .center-msg p { color: var(--muted); font-size: 14px; }
+    .center-icon { font-size: 32px; margin-bottom: 10px; }
+
+    /* ── MODAL OVERLAY ── */
+    .overlay {
+      position: fixed; inset: 0; z-index: 1000;
+      background: rgba(0,0,0,.9); backdrop-filter: blur(8px);
+      display: flex; align-items: flex-end; justify-content: center;
+      padding: 0; animation: fadeUp .2s ease;
+      /* En móvil el modal sube desde abajo */
+    }
+    @media (min-width: 600px) {
+      .overlay { align-items: center; padding: 20px; }
+    }
+
+    /* ── MODAL ── */
+    .modal {
+      background: var(--modal);
+      border-radius: 20px 20px 0 0; /* en móvil: esquinas arriba */
+      width: 100%;
+      max-height: 92vh;
+      overflow-y: auto;
+      border: 1px solid var(--border);
+      box-shadow: 0 -20px 60px rgba(0,0,0,.6);
+      animation: slideUp .28s cubic-bezier(.16,1,.3,1);
+      position: relative;
+    }
+    @media (min-width: 600px) {
+      .modal {
+        border-radius: 20px;
+        max-width: 680px;
+        box-shadow: 0 40px 100px rgba(0,0,0,.7);
+      }
+    }
+
+    /* Drag handle en móvil */
+    .modal-handle {
+      width: 36px; height: 4px; background: var(--border);
+      border-radius: 2px; margin: 12px auto 0;
+    }
+    @media (min-width: 600px) { .modal-handle { display: none; } }
+
+    /* Botón cerrar — siempre visible y grande */
+    .close-btn {
+      position: absolute; top: 12px; right: 12px; z-index: 20;
+      background: var(--btn); border: 1px solid var(--border);
+      color: var(--text); width: 36px; height: 36px;
+      border-radius: 50%; cursor: pointer; font-size: 18px;
+      display: flex; align-items: center; justify-content: center;
+      line-height: 1; font-family: inherit;
+      /* Tamaño mínimo táctil */
+      touch-action: manipulation;
+    }
+
+    /* Layout interno del modal */
+    .modal-inner {
+      display: flex;
+      flex-direction: column; /* móvil: apilado */
+      padding: 0;
+    }
+    @media (min-width: 500px) {
+      .modal-inner { flex-direction: row; }
+    }
+
+    /* Poster en el modal */
+    .modal-poster {
+      width: 100%;
+      height: 200px;
+      flex-shrink: 0;
+      overflow: hidden;
+      background: var(--poster);
+      border-radius: 0;
+    }
+    @media (min-width: 500px) {
+      .modal-poster {
+        width: 180px;
+        height: auto;
+        min-height: 260px;
+        border-radius: 0; /* el modal ya tiene border-radius */
+      }
+    }
+    .modal-poster img { width: 100%; height: 100%; object-fit: cover; object-position: top; display: block; }
+    .modal-poster-ph { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 48px; color: var(--muted); }
+
+    /* Info del modal */
+    .modal-info {
+      flex: 1;
+      padding: 16px 50px 20px 16px; /* padding-right extra para la X */
+      min-width: 0;
+    }
+    @media (min-width: 500px) {
+      .modal-info { padding: 20px 50px 24px 20px; }
+    }
+
+    .badges { display: flex; gap: 7px; flex-wrap: wrap; margin-bottom: 12px; }
+    .badge { font-size: 10px; font-weight: 800; padding: 3px 9px; border-radius: 20px; letter-spacing: .1em; text-transform: uppercase; }
+    .badge-series { background: rgba(124,58,237,.2); color: #a78bfa; border: 1px solid rgba(124,58,237,.35); }
+    .badge-movie  { background: rgba(194,65,12,.2);  color: #fb923c; border: 1px solid rgba(194,65,12,.35); }
+    .badge-rating { background: rgba(232,160,0,.15); color: var(--accent); border: 1px solid rgba(232,160,0,.3); }
+
+    .modal-title { font-size: 18px; line-height: 1.3; font-family: 'Playfair Display', serif; color: var(--text); margin-bottom: 6px; }
+    @media (min-width: 500px) { .modal-title { font-size: 20px; } }
+
+    .modal-meta { font-size: 13px; color: var(--muted); margin-bottom: 12px; display: flex; gap: 10px; flex-wrap: wrap; }
+    .modal-synopsis { line-height: 1.75; color: var(--text2); font-size: 13px; margin-bottom: 18px; }
+    .modal-synopsis-none { color: var(--muted); font-size: 13px; font-style: italic; margin-bottom: 18px; }
+
+    .fa-link {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: var(--accent); color: #000;
+      padding: 10px 20px; border-radius: 10px;
+      text-decoration: none; font-weight: 700; font-size: 13px;
+      transition: opacity .15s; touch-action: manipulation;
+    }
+    .fa-link:hover { opacity: .85; }
+
+    /* Del btn in modal */
+    .modal-del-btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      margin-left: 10px;
+      background: transparent; border: 1px solid var(--border);
+      color: var(--muted); padding: 10px 14px; border-radius: 10px;
+      font-weight: 700; font-size: 12px; font-family: inherit;
+      cursor: pointer; transition: all .15s;
+    }
+    .modal-del-btn.active { background: rgba(239,68,68,.15); border-color: rgba(239,68,68,.4); color: #f87171; }
+
+    .hide-del-btn {
+      background: var(--btn); border: 1px solid var(--border);
+      color: var(--muted); padding: 6px 11px; border-radius: 9px;
+      cursor: pointer; font-size: 11px; font-weight: 700;
+      font-family: inherit; flex-shrink: 0; white-space: nowrap;
+    }
+    .hide-del-btn.active { background: rgba(239,68,68,.12); color: #f87171; border-color: rgba(239,68,68,.3); }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="header-inner">
+    <div class="logo"><span>FA</span> Viewer<small id="last-update"></small></div>
+
+    <div class="filter-group">
+      <button class="filter-btn active" data-filter="all"    onclick="setFilter('all')">Todo</button>
+      <button class="filter-btn"        data-filter="movies" onclick="setFilter('movies')">🎬</button>
+      <button class="filter-btn"        data-filter="series" onclick="setFilter('series')">📺</button>
+    </div>
+
+    <button class="hide-del-btn" id="hide-btn" onclick="toggleShowDeleted()">👁</button>
+
+    <div class="spacer"></div>
+    <div class="count" id="count-label"></div>
+
+    <button class="icon-btn" id="refresh-btn" onclick="loadList(true)">
+      <span id="refresh-icon">↺</span><span class="hide-xs"> Actualizar</span>
+    </button>
+    <button class="icon-btn" onclick="toggleDark()">
+      <span id="dark-icon">☀</span>
+    </button>
+  </div>
+  <div class="progress-bar"><div class="progress-fill" id="progress-fill" style="width:0%"></div></div>
+</header>
+
+<main>
+  <div id="status-area"></div>
+  <div id="grid" class="grid"></div>
+  <div id="empty-msg" class="center-msg" style="display:none">
+    <div class="center-icon">🎬</div>
+    <p>No hay títulos que mostrar</p>
+  </div>
+</main>
+
+<!-- Modal -->
+<div class="overlay" id="overlay" style="display:none">
+  <div class="modal" id="modal">
+    <div class="modal-handle"></div>
+    <button class="close-btn" id="close-btn">✕</button>
+    <div class="modal-inner">
+      <div class="modal-poster" id="modal-poster"></div>
+      <div class="modal-info">
+        <div class="badges" id="modal-badges"></div>
+        <h2 class="modal-title" id="modal-title"></h2>
+        <div class="modal-meta" id="modal-meta"></div>
+        <p id="modal-synopsis" class="modal-synopsis"></p>
+        <div style="display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-top:4px">
+          <a class="fa-link" id="modal-link" href="#" target="_blank" rel="noopener">Ver en FilmAffinity ↗</a>
+          <button class="modal-del-btn" id="modal-del-btn" onclick="toggleDeleteFromModal()">✕ Marcar para borrar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+  /* Ocultar texto "Actualizar" en pantallas muy pequeñas */
+  @media (max-width: 400px) { .hide-xs { display: none; } }
+</style>
+
+<script>
+// ── Config ────────────────────────────────────────────────────────────────────
+const DEFAULT_URL = "https://www.filmaffinity.com/es/userlist.php?user_id=629775&list_id=1013";
+const API = window.FA_API_URL || "";
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let allFilms   = [];
+let deletedIds = new Set();
+let filter     = "all";
+let showDeleted = true;
+let dark        = true;
+let loading     = false;
+let currentModalId = null;
+
+// ── URL helpers ───────────────────────────────────────────────────────────────
+function getListUrl() {
+  try { const p = new URLSearchParams(location.search); const b = p.get("url"); if (b) return atob(b); } catch {}
+  return DEFAULT_URL;
+}
+function listKey() { return "fa_" + btoa(getListUrl()).replace(/[^a-z0-9]/gi,"").slice(0,20); }
+
+// ── Status ────────────────────────────────────────────────────────────────────
+function setStatus(msg, done, total) {
+  const el = document.getElementById("status-area");
+  if (!msg) { el.innerHTML = ""; document.getElementById("progress-fill").style.width = "0%"; return; }
+  document.getElementById("progress-fill").style.width = total > 0 ? Math.round(done/total*100)+"%" : "15%";
+  el.innerHTML = `<div class="status-box"><div class="status-spinner"></div><span class="status-text">${msg}</span>${total>0?`<span class="status-right">${done}/${total}</span>`:""}</div>`;
+}
+function setError(msg) {
+  document.getElementById("progress-fill").style.width = "0%";
+  document.getElementById("status-area").innerHTML = msg
+    ? `<div class="error-box"><div class="error-title">⚠ Error</div><div class="error-msg">${msg}</div><button class="retry-btn" onclick="loadList(true)">Reintentar</button></div>`
+    : "";
+}
+function updateCount() {
+  const vis = visibleFilms(), del = deletedIds.size;
+  document.getElementById("count-label").innerHTML =
+    `${vis.length}/${allFilms.length}` + (del > 0 ? ` <span class="dc">·${del}✕</span>` : "");
+}
+function visibleFilms() {
+  return allFilms.filter(f => {
+    if (!showDeleted && deletedIds.has(f.id||f.title)) return false;
+    if (filter === "movies") return f.type !== "series";
+    if (filter === "series") return f.type === "series";
+    return true;
+  });
+}
+
+// ── Load list ─────────────────────────────────────────────────────────────────
+async function loadList(force = false) {
+  if (loading) return;
+  loading = true;
+  setError(null);
+  toggleRefreshBtn(true);
+
+  const url = getListUrl();
+  const apiUrl = `${API}/api/list?url=${encodeURIComponent(btoa(url))}${force ? "&force=1" : ""}`;
+  setStatus("Obteniendo lista de FilmAffinity...");
+  renderGrid([]);
+
+  try {
+    const r = await fetch(apiUrl);
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || "Error desconocido");
+
+    allFilms = data.films || [];
+    const d = new Date(data.ts);
+    document.getElementById("last-update").textContent =
+      data.cached
+        ? `Caché ${d.toLocaleDateString("es-ES",{day:"2-digit",month:"2-digit"})} ${d.toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"})}`
+        : `Actualizado ${d.toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"})}`;
+
+    setStatus(null);
+    renderGrid(allFilms);
+    updateCount();
+    loading = false;
+    toggleRefreshBtn(false);
+
+    await loadDetails();
+
+  } catch (err) {
+    setError(err.message);
+    loading = false;
+    toggleRefreshBtn(false);
+  }
+}
+
+async function loadDetails() {
+  const total = allFilms.length;
+  for (let i = 0; i < allFilms.length; i++) {
+    const film = allFilms[i];
+    if (film._detailed) continue;
+    setStatus(`Cargando detalles (${i+1}/${total})`, i+1, total);
+    try {
+      const r = await fetch(`${API}/api/film/${film.id}`);
+      if (r.ok) {
+        const details = await r.json();
+        allFilms[i] = { ...film, ...details, _detailed: true };
+        updateCard(allFilms[i]);
+        // Actualizar modal si está abierto con esta peli
+        if (currentModalId === film.id) fillModal(allFilms[i]);
+      }
+    } catch {}
+    await sleep(200);
+  }
+  setStatus(null);
+  updateCount();
+}
+
+// ── Grid ──────────────────────────────────────────────────────────────────────
+function renderGrid(films) {
+  const grid  = document.getElementById("grid");
+  const empty = document.getElementById("empty-msg");
+
+  if (films.length === 0 && !loading) {
+    grid.innerHTML = `<div class="center-msg"><div class="big-spinner"></div><p>Cargando...</p></div>`;
+    empty.style.display = "none";
+    return;
+  }
+  const visible = visibleFilms();
+  if (visible.length === 0) { grid.innerHTML = ""; empty.style.display = "block"; return; }
+  empty.style.display = "none";
+  grid.innerHTML = visible.map((f, i) => cardHTML(f, i)).join("");
+  updateCount();
+}
+
+function cardHTML(f, i) {
+  const id    = f.id || f.title;
+  const isDel = deletedIds.has(id);
+  const typeBadge   = f.type ? `<div class="type-badge ${f.type==='series'?'type-series':'type-movie'}">${f.type==='series'?'SERIE':'FILM'}</div>` : "";
+  const ratingBadge = f.rating ? `<div class="rating-badge">★ ${f.rating}</div>` : "";
+  const delOverlay  = isDel ? `<div class="del-overlay"><span class="del-label">BORRAR</span></div>` : "";
+  const poster      = f.poster
+    ? `<img src="${esc(f.poster)}" alt="${esc(f.title)}" loading="lazy" onerror="this.style.display='none'">`
+    : `<div class="poster-ph">🎬</div>`;
+  const meta = [f.year, f.duration ? (f.type==="series" ? f.duration+"m/ep" : f.duration+"min") : null].filter(Boolean).join(" · ");
+
+  return `<div class="card${isDel?" deleted":""}" id="card-${f.id}" onclick="openModal('${f.id}')" style="animation-delay:${i*0.02}s">
+    <div class="poster-wrap">
+      ${poster}
+      <div class="grad"></div>
+      ${typeBadge}${ratingBadge}${delOverlay}
+      <button class="del-btn${isDel?" active":""}" onclick="event.stopPropagation();toggleDelete('${id}')" title="${isDel?"Quitar marca":"Marcar para borrar"}">✕</button>
+    </div>
+    <div class="card-info">
+      <div class="card-title">${esc(f.title||"Sin título")}</div>
+      <div class="card-meta">${meta}</div>
+    </div>
+  </div>`;
+}
+
+function updateCard(film) {
+  const el = document.getElementById("card-" + film.id);
+  if (!el) return;
+  const visible = visibleFilms();
+  const idx = visible.findIndex(f => f.id === film.id);
+  if (idx >= 0) el.outerHTML = cardHTML(film, idx);
+}
+
+// ── Delete ────────────────────────────────────────────────────────────────────
+async function toggleDelete(id) {
+  if (deletedIds.has(id)) deletedIds.delete(id); else deletedIds.add(id);
+  renderGrid(allFilms);
+  syncMarks();
+}
+
+async function toggleDeleteFromModal() {
+  if (!currentModalId) return;
+  await toggleDelete(currentModalId);
+  // Update button state
+  const film = allFilms.find(f => f.id === currentModalId);
+  if (film) updateModalDelBtn(currentModalId);
+}
+
+function updateModalDelBtn(id) {
+  const btn = document.getElementById("modal-del-btn");
+  if (!btn) return;
+  const isDel = deletedIds.has(id);
+  btn.className = "modal-del-btn" + (isDel ? " active" : "");
+  btn.textContent = isDel ? "✕ Quitar marca" : "✕ Marcar para borrar";
+}
+
+async function syncMarks() {
+  try {
+    await fetch(`${API}/api/marks/${listKey()}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ marks: [...deletedIds] }),
+    });
+  } catch {}
+}
+
+async function loadDeletedMarks() {
+  try {
+    const r = await fetch(`${API}/api/marks/${listKey()}`);
+    const data = await r.json();
+    deletedIds = new Set(data.marks || []);
+  } catch {}
+}
+
+// ── Modal ─────────────────────────────────────────────────────────────────────
+function openModal(filmId) {
+  const film = allFilms.find(f => f.id === filmId);
+  if (!film) return;
+  currentModalId = filmId;
+  fillModal(film);
+  document.getElementById("overlay").style.display = "flex";
+  document.body.style.overflow = "hidden";
+  document.addEventListener("keydown", onEsc);
+}
+
+function fillModal(film) {
+  const faUrl = film.filmaffinity_url || `https://www.filmaffinity.com/es/film${film.id}.html`;
+
+  // Poster
+  document.getElementById("modal-poster").innerHTML = film.poster
+    ? `<img src="${esc(film.poster)}" alt="${esc(film.title)}" onerror="this.parentElement.innerHTML='<div class=modal-poster-ph>🎬</div>'">`
+    : `<div class="modal-poster-ph">🎬</div>`;
+
+  // Badges
+  const b = [];
+  if (film.type) b.push(`<span class="badge ${film.type==='series'?'badge-series':'badge-movie'}">${film.type==='series'?'📺 SERIE':'🎬 PELÍCULA'}</span>`);
+  if (film.rating) b.push(`<span class="badge badge-rating">★ ${film.rating}</span>`);
+  document.getElementById("modal-badges").innerHTML = b.join("");
+
+  document.getElementById("modal-title").textContent = film.title || "Sin título";
+
+  const meta = [];
+  if (film.year) meta.push("📅 " + film.year);
+  if (film.duration) meta.push("⏱ " + (film.type === "series" ? film.duration + " min/ep" : film.duration + " min"));
+  document.getElementById("modal-meta").innerHTML = meta.join(" &nbsp;·&nbsp; ");
+
+  const synEl = document.getElementById("modal-synopsis");
+  synEl.className = film.synopsis ? "modal-synopsis" : "modal-synopsis-none";
+  synEl.textContent = film.synopsis || "Sin sinopsis disponible";
+
+  document.getElementById("modal-link").href = faUrl;
+  updateModalDelBtn(film.id);
+}
+
+function closeModal() {
+  document.getElementById("overlay").style.display = "none";
+  document.body.style.overflow = "";
+  currentModalId = null;
+  document.removeEventListener("keydown", onEsc);
+}
+
+function onEsc(e) { if (e.key === "Escape") closeModal(); }
+
+// ── UI Controls ───────────────────────────────────────────────────────────────
+function setFilter(f) {
+  filter = f;
+  document.querySelectorAll(".filter-btn").forEach(b => b.classList.toggle("active", b.dataset.filter === f));
+  renderGrid(allFilms);
+}
+function toggleShowDeleted() {
+  showDeleted = !showDeleted;
+  const btn = document.getElementById("hide-btn");
+  btn.classList.toggle("active", !showDeleted);
+  btn.textContent = showDeleted ? "👁" : "🙈";
+  btn.title = showDeleted ? "Mostrar todos" : "Ocultar marcados";
+  renderGrid(allFilms);
+}
+function toggleDark() {
+  dark = !dark;
+  document.body.classList.toggle("light", !dark);
+  document.getElementById("dark-icon").textContent = dark ? "☀" : "☾";
+}
+function toggleRefreshBtn(busy) {
+  document.getElementById("refresh-btn").disabled = busy;
+  document.getElementById("refresh-icon").className = busy ? "spin" : "";
+}
+
+// ── Utils ─────────────────────────────────────────────────────────────────────
+function esc(s) { return (s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// ── Init ─────────────────────────────────────────────────────────────────────
+document.getElementById("close-btn").addEventListener("click", closeModal);
+document.getElementById("overlay").addEventListener("click", function(e) {
+  if (e.target === this) closeModal();
+});
+
+(async () => {
+  await loadDeletedMarks();
+  await loadList(false);
+  // Refresco automático una vez al día
+  setInterval(() => loadList(false), 24 * 60 * 60 * 1000);
+})();
+</script>
+</body>
+</html>
