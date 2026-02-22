@@ -4,21 +4,33 @@ const cheerio   = require("cheerio");
 const fetch     = require("node-fetch");
 const rateLimit = require("express-rate-limit");
 const path      = require("path");
+const fs        = require("fs");
 
 const app  = express();
 const PORT = process.env.PORT || 3001;
-
-// TMDB API key — pon la tuya en Render como variable de entorno TMDB_KEY
-// Consíguela gratis en https://www.themoviedb.org/settings/api (registro en 1 min)
 const TMDB_KEY = process.env.TMDB_KEY || "";
 
-// ── Caché 24 h ────────────────────────────────────────────────────────────────
-const cache   = {};  // key → { data, ts }
-const TTL_LIST = 24 * 60 * 60 * 1000;
-const TTL_FILM = 24 * 60 * 60 * 1000;
+// ── Persistencia en disco (sobrevive reinicios de Render) ─────────────────────
+const DATA_DIR   = process.env.DATA_DIR || path.join(__dirname, "data");
+const CACHE_FILE = path.join(DATA_DIR, "cache.json");
+const MARKS_FILE = path.join(DATA_DIR, "marks.json");
 
-// ── Marcas compartidas ────────────────────────────────────────────────────────
-const deletedMarks = {};
+if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+
+function loadJSON(file, fallback) {
+  try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch { return fallback; }
+}
+function saveJSON(file, data) {
+  try { fs.writeFileSync(file, JSON.stringify(data), "utf8"); } catch (e) { log("saveJSON error:", e.message); }
+}
+
+// listCache: { [listKey]: { films, ts, listUrl } }
+let listCache    = loadJSON(CACHE_FILE, {});
+// deletedMarks: { [listKey]: string[] }
+let deletedMarks = loadJSON(MARKS_FILE, {});
+
+function saveCache()  { saveJSON(CACHE_FILE, listCache); }
+function saveMarks()  { saveJSON(MARKS_FILE, deletedMarks); }
 
 // ── Middleware ────────────────────────────────────────────────────────────────
 app.use(cors());
@@ -26,9 +38,9 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
 app.use("/api/", rateLimit({ windowMs: 60_000, max: 120 }));
 
-// ─────────────────────────────────────────────────────────────────────────────
-// FILMAFFINITY — solo para obtener la lista (mínimas peticiones)
-// ─────────────────────────────────────────────────────────────────────────────
+function log(...a) { console.log(new Date().toISOString(), ...a); }
+
+// ── User-Agent pool ───────────────────────────────────────────────────────────
 const UA_POOL = [
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_2) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15",
@@ -37,81 +49,59 @@ const UA_POOL = [
 ];
 const randUA = () => UA_POOL[Math.floor(Math.random() * UA_POOL.length)];
 
-// Cookie de sesión FA (se obtiene una sola vez)
-let faCookie = "";
+// ── Cookie de sesión FA ───────────────────────────────────────────────────────
+let faCookie   = "";
 let faCookieTs = 0;
 async function getFACookie() {
   if (faCookie && Date.now() - faCookieTs < 60 * 60 * 1000) return;
   try {
     const r = await fetch("https://www.filmaffinity.com/es/main.html", {
-      headers: { "User-Agent": randUA() }, timeout: 12000,
+      headers: { "User-Agent": randUA(), "Accept-Language": "es-ES,es;q=0.9" },
+      timeout: 12000,
     });
     const raw = r.headers.get("set-cookie") || "";
     const c = raw.split(",").map(s => s.split(";")[0].trim()).filter(s => s.includes("=")).join("; ");
     if (c) { faCookie = c; faCookieTs = Date.now(); }
-  } catch {}
+    log("[FA] Cookie:", c ? "obtenida" : "no disponible");
+  } catch (e) { log("[FA] Cookie error:", e.message); }
 }
 
-async function faFetch(url, retries = 4) {
+// ── faFetch ───────────────────────────────────────────────────────────────────
+async function faFetch(url) {
   await getFACookie();
+  const headers = {
+    "User-Agent":      randUA(),
+    "Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "es-ES,es;q=0.9",
+    "Referer":         "https://www.filmaffinity.com/es/main.html",
+    "DNT":             "1",
+  };
+  if (faCookie) headers["Cookie"] = faCookie;
 
-  let lastError = new Error("Sin respuesta tras todos los reintentos");
+  log("[FA] GET", url.slice(0, 80));
+  const r = await fetch(url, { headers, redirect: "follow", timeout: 20000 });
+  log("[FA] →", r.status);
 
-  for (let i = 0; i < retries; i++) {
-    try {
-      const headers = {
-        "User-Agent":      randUA(),
-        "Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "es-ES,es;q=0.9",
-        "Referer":         "https://www.filmaffinity.com/es/main.html",
-        "DNT":             "1",
-      };
-      if (faCookie) headers["Cookie"] = faCookie;
+  if (r.status === 429) throw new Error("FilmAffinity ha limitado las peticiones (429). Espera unos minutos e inténtalo de nuevo.");
+  if (r.status === 403) throw new Error("FilmAffinity ha bloqueado el acceso (403). La IP del servidor puede estar vetada temporalmente.");
+  if (r.status === 503) throw new Error("FilmAffinity no disponible (503). Inténtalo más tarde.");
+  if (!r.ok)            throw new Error(`FilmAffinity devolvió HTTP ${r.status}.`);
 
-      const r = await fetch(url, { headers, redirect: "follow", timeout: 25000 });
+  const html = await r.text();
+  if (!html || html.length < 200)                 throw new Error("Respuesta vacía de FilmAffinity.");
+  if (html.includes("Just a moment") ||
+      html.includes("cf-browser-verification") ||
+      html.includes("Checking your browser"))     throw new Error("FilmAffinity está protegido por Cloudflare en este momento.");
 
-      // Rate-limit o servicio no disponible → esperar y reintentar
-      if (r.status === 429 || r.status === 503) {
-        const wait = Math.pow(2, i + 2) * 1000 + Math.random() * 1500;
-        console.log(`FA ${r.status} en intento ${i+1} → esperando ${Math.round(wait/1000)}s`);
-        lastError = new Error(`HTTP ${r.status} — FilmAffinity limita las peticiones. Espera unos minutos y pulsa Actualizar.`);
-        faCookie = ""; // forzar renovación de cookie en próximo intento
-        await sleep(wait);
-        continue;
-      }
-
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-
-      const html = await r.text();
-
-      if (typeof html !== "string" || html.trim().length === 0)
-        throw new Error("Respuesta vacía de FilmAffinity");
-
-      if (html.includes("Just a moment") || html.includes("cf-browser-verification"))
-        throw new Error("CLOUDFLARE_BLOCK");
-
-      return html; // ← éxito
-
-    } catch (e) {
-      lastError = e;
-      if (e.message === "CLOUDFLARE_BLOCK") throw e; // no reintentar Cloudflare
-      if (i < retries - 1) {
-        console.log(`Error en intento ${i+1}: ${e.message} — reintentando…`);
-        await sleep(3000 + i * 1000);
-      }
-    }
-  }
-
-  throw lastError; // lanzar el último error conocido
+  return html;
 }
 
-// Extraer películas de UNA página de lista FA
+// ── Parsers ───────────────────────────────────────────────────────────────────
 function parseListPage(html) {
   if (typeof html !== "string") return [];
   const $ = cheerio.load(html);
   const films = [];
 
-  // Selector principal de listas de usuario FA
   $(".user-list-film-item, .fa-film, .user-movie-item, [class*='list-film']").each((_, el) => {
     const $el  = $(el);
     const link = $el.find("a[href*='/film']").first();
@@ -124,14 +114,12 @@ function parseListPage(html) {
                    || link.attr("title") || "";
     const img    = $el.find("img").first();
     const poster = img.attr("src") || img.attr("data-src") || null;
-    const ratTxt = $el.find(".avgrat-box, .rat-avg, [class*='avgrat'], [class*='rat']").first()
+    const ratTxt = $el.find(".avgrat-box, .rat-avg, [class*='avgrat']").first()
                       .text().trim().replace(",", ".");
     const rating = parseFloat(ratTxt) || null;
     const year   = parseInt($el.find("[class*='year'], .mc-year").first().text().trim()) || null;
-
-    // Tipo: buscar indicador serie en la tarjeta
     const cardText = $el.text().toLowerCase();
-    const type = cardText.includes("serie") || cardText.includes("tv") ? "series" : "movie";
+    const type   = cardText.includes("serie") || cardText.includes("tv") ? "series" : "movie";
 
     films.push({ id, title, poster, rating, year, type,
       filmaffinity_url: `https://www.filmaffinity.com/es/film${id}.html` });
@@ -145,10 +133,10 @@ function parseListPage(html) {
       const m    = href.match(/\/film(\d{5,})\./);
       if (!m || seen.has(m[1])) return;
       seen.add(m[1]);
-      const $a   = $(el);
-      const img  = $a.find("img").first();
+      const img = $(el).find("img").first();
       films.push({
-        id: m[1], title: $a.attr("title") || $a.text().trim() || null,
+        id: m[1],
+        title:  $(el).attr("title") || $(el).text().trim() || null,
         poster: img.attr("src") || img.attr("data-src") || null,
         rating: null, year: null, type: "movie",
         filmaffinity_url: `https://www.filmaffinity.com/es/film${m[1]}.html`,
@@ -169,166 +157,190 @@ function parseTotalPages(html) {
   return max;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// TMDB — para sinopsis, duración, póster HD, tipo correcto
-// ─────────────────────────────────────────────────────────────────────────────
+// ── TMDB enrich ───────────────────────────────────────────────────────────────
+const tmdbCache = {};
 async function tmdbEnrich(film) {
   if (!TMDB_KEY) return {};
-  const cacheKey = "tmdb_" + film.id;
-  if (cache[cacheKey] && Date.now() - cache[cacheKey].ts < TTL_FILM)
-    return cache[cacheKey].data;
-
-  const title = film.title || "";
-  const year  = film.year  || "";
+  const key = "tmdb_" + film.id;
+  if (tmdbCache[key] && Date.now() - tmdbCache[key].ts < 7 * 24 * 60 * 60 * 1000)
+    return tmdbCache[key].data;
 
   try {
-    // Buscar en ambos índices (movie y tv) en paralelo
-    const [movieRes, tvRes] = await Promise.all([
-      fetch(`https://api.themoviedb.org/3/search/movie?api_key=${TMDB_KEY}&query=${encodeURIComponent(title)}&year=${year}&language=es-ES`, { timeout: 8000 }),
-      fetch(`https://api.themoviedb.org/3/search/tv?api_key=${TMDB_KEY}&query=${encodeURIComponent(title)}&first_air_date_year=${year}&language=es-ES`, { timeout: 8000 }),
+    const q = encodeURIComponent(film.title || "");
+    const y = film.year || "";
+    const [mr, tr] = await Promise.all([
+      fetch(`https://api.themoviedb.org/3/search/movie?api_key=${TMDB_KEY}&query=${q}&year=${y}&language=es-ES`, { timeout: 8000 }),
+      fetch(`https://api.themoviedb.org/3/search/tv?api_key=${TMDB_KEY}&query=${q}&first_air_date_year=${y}&language=es-ES`,    { timeout: 8000 }),
+    ]);
+    const [md, td] = await Promise.all([
+      mr.ok ? mr.json() : { results: [] },
+      tr.ok ? tr.json() : { results: [] },
     ]);
 
-    const [movieData, tvData] = await Promise.all([
-      movieRes.ok ? movieRes.json() : { results: [] },
-      tvRes.ok    ? tvRes.json()    : { results: [] },
-    ]);
+    const mResults = (md.results || []);
+    const tResults = (td.results || []);
+    let result = null, mediaType = film.type || "movie";
 
-    // Elegir el mejor resultado
-    let result = null;
-    let mediaType = film.type || "movie";
+    if (film.type === "series" && tResults.length > 0)      { result = tResults[0]; mediaType = "series"; }
+    else if (film.type !== "series" && mResults.length > 0) { result = mResults[0]; mediaType = "movie";  }
+    else if (tResults.length > 0)                           { result = tResults[0]; mediaType = "series"; }
+    else if (mResults.length > 0)                           { result = mResults[0]; mediaType = "movie";  }
 
-    const mResults = (movieData.results || []).slice(0, 3);
-    const tResults = (tvData.results   || []).slice(0, 3);
+    if (!result) { tmdbCache[key] = { data: {}, ts: Date.now() }; return {}; }
 
-    // Preferir el tipo que ya tenemos de FA, pero si no hay resultado intentar el otro
-    if (film.type === "series" && tResults.length > 0) {
-      result = tResults[0]; mediaType = "series";
-    } else if (film.type !== "series" && mResults.length > 0) {
-      result = mResults[0]; mediaType = "movie";
-    } else if (tResults.length > 0) {
-      result = tResults[0]; mediaType = "series";
-    } else if (mResults.length > 0) {
-      result = mResults[0]; mediaType = "movie";
-    }
-
-    if (!result) { cache[cacheKey] = { data: {}, ts: Date.now() }; return {}; }
-
-    // Obtener detalles completos (para duración)
     const detailUrl = mediaType === "series"
       ? `https://api.themoviedb.org/3/tv/${result.id}?api_key=${TMDB_KEY}&language=es-ES`
       : `https://api.themoviedb.org/3/movie/${result.id}?api_key=${TMDB_KEY}&language=es-ES`;
 
-    const detailRes  = await fetch(detailUrl, { timeout: 8000 });
-    const detail     = detailRes.ok ? await detailRes.json() : result;
+    const dr     = await fetch(detailUrl, { timeout: 8000 });
+    const detail = dr.ok ? await dr.json() : result;
 
-    const synopsis = detail.overview || result.overview || null;
-    const duration = mediaType === "series"
-      ? (detail.episode_run_time?.[0] || null)
-      : (detail.runtime || null);
+    const synopsis   = detail.overview || result.overview || null;
+    const duration   = mediaType === "series" ? (detail.episode_run_time?.[0] || null) : (detail.runtime || null);
     const posterPath = detail.poster_path || result.poster_path || null;
     const poster     = posterPath ? `https://image.tmdb.org/t/p/w500${posterPath}` : null;
 
-    const enriched = {
-      synopsis,
-      duration,
-      type: mediaType,
-      ...(poster ? { poster } : {}), // solo sobreescribir póster si TMDB tiene uno
-    };
-
-    cache[cacheKey] = { data: enriched, ts: Date.now() };
-    return enriched;
+    const data = { synopsis, duration, type: mediaType, ...(poster ? { poster } : {}) };
+    tmdbCache[key] = { data, ts: Date.now() };
+    return data;
   } catch (e) {
-    console.warn("TMDB error para", title, e.message);
+    log("[TMDB] error:", film.title, e.message);
     return {};
   }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// API endpoints
+// API
 // ─────────────────────────────────────────────────────────────────────────────
 
-// GET /api/list?url=BASE64[&force=1]
-// Devuelve la lista completa con datos básicos de FA inmediatamente.
-// El enriquecimiento TMDB se hace luego via /api/enrich/:id
+// GET /api/list?url=BASE64
+// → Devuelve caché si existe. NUNCA va a FA automáticamente.
 app.get("/api/list", async (req, res) => {
-  const { url, force } = req.query;
-  if (!url) return res.status(400).json({ error: "Missing url param" });
+  const { url } = req.query;
+  if (!url) return res.status(400).json({ error: "Falta parámetro url" });
 
   let listUrl;
   try { listUrl = /^https?:\/\//.test(url) ? url : atob(url); }
-  catch { return res.status(400).json({ error: "Invalid url param" }); }
+  catch { return res.status(400).json({ error: "URL inválida" }); }
 
   if (!listUrl.includes("filmaffinity.com"))
     return res.status(400).json({ error: "Solo se admiten URLs de filmaffinity.com" });
 
-  const cacheKey = "list_" + listUrl;
-  if (!force && cache[cacheKey] && Date.now() - cache[cacheKey].ts < TTL_LIST)
-    return res.json({ films: cache[cacheKey].data, cached: true, ts: cache[cacheKey].ts });
+  const key = makeKey(listUrl);
+  const cached = listCache[key];
+
+  if (cached) {
+    log("[CACHE] Hit para", key, "—", cached.films.length, "películas, ts:", new Date(cached.ts).toISOString());
+    return res.json({ films: cached.films, cached: true, ts: cached.ts });
+  }
+
+  // Sin caché: devolver respuesta vacía para que el frontend pida refresco explícito
+  log("[CACHE] Miss para", key);
+  return res.json({ films: [], cached: false, ts: null, empty: true });
+});
+
+// POST /api/refresh?url=BASE64
+// → ÚNICO punto que va a FilmAffinity. Solo se llama cuando el usuario pulsa Actualizar.
+app.post("/api/refresh", async (req, res) => {
+  const { url } = req.query;
+  if (!url) return res.status(400).json({ error: "Falta parámetro url" });
+
+  let listUrl;
+  try { listUrl = /^https?:\/\//.test(url) ? url : atob(url); }
+  catch { return res.status(400).json({ error: "URL inválida" }); }
+
+  if (!listUrl.includes("filmaffinity.com"))
+    return res.status(400).json({ error: "Solo se admiten URLs de filmaffinity.com" });
+
+  const key = makeKey(listUrl);
+  log("[REFRESH] Iniciando para", listUrl);
 
   try {
     // Página 1
-    const html1     = await faFetch(listUrl);
-    let allFilms    = parseListPage(html1);
+    const html1      = await faFetch(listUrl);
+    let allFilms     = parseListPage(html1);
     const totalPages = parseTotalPages(html1);
+    log("[REFRESH] Página 1:", allFilms.length, "films, totalPages:", totalPages);
 
-    // Páginas adicionales — pausa 2-4 s entre ellas para no disparar 429
+    // Páginas siguientes — pausa 2-3 s entre ellas
     for (let page = 2; page <= Math.min(totalPages, 30); page++) {
-      await sleep(2000 + Math.random() * 2000);
+      await sleep(2000 + Math.random() * 1000);
       try {
         const sep  = listUrl.includes("?") ? "&" : "?";
         const html = await faFetch(`${listUrl}${sep}page=${page}`);
         const pf   = parseListPage(html);
         if (pf.length === 0) break;
-        allFilms   = allFilms.concat(pf);
-      } catch (e) { console.warn("Paginación parada en p." + page, e.message); break; }
+        allFilms = allFilms.concat(pf);
+        log("[REFRESH] Página", page, "→", pf.length, "films");
+      } catch (e) {
+        log("[REFRESH] Paginación parada en p." + page + ":", e.message);
+        break;
+      }
     }
 
-    allFilms = allFilms.reverse(); // orden inverso como se requiere
-    cache[cacheKey] = { data: allFilms, ts: Date.now() };
-    res.json({ films: allFilms, cached: false, ts: cache[cacheKey].ts });
+    // Orden inverso
+    allFilms = allFilms.reverse();
+    log("[REFRESH] Total:", allFilms.length, "films");
+
+    // Guardar en caché
+    listCache[key] = { films: allFilms, ts: Date.now(), listUrl };
+    saveCache();
+
+    res.json({ films: allFilms, cached: false, ts: listCache[key].ts, total: allFilms.length });
 
   } catch (err) {
-    console.error("/api/list error:", err.message);
-    if (err.message === "CLOUDFLARE_BLOCK")
-      return res.status(503).json({ error: "FilmAffinity está bloqueando el acceso con Cloudflare." });
+    log("[REFRESH] Error:", err.message);
     res.status(500).json({ error: err.message });
   }
 });
 
 // GET /api/enrich/:faId?title=X&year=Y&type=movie|series
-// Enriquece UNA película desde TMDB (sin tocar FA)
 app.get("/api/enrich/:faId", async (req, res) => {
-  const { faId } = req.params;
-  const film = {
-    id:    faId,
+  const data = await tmdbEnrich({
+    id:    req.params.faId,
     title: req.query.title || "",
-    year:  parseInt(req.query.year)  || null,
+    year:  parseInt(req.query.year) || null,
     type:  req.query.type || "movie",
-  };
-  const data = await tmdbEnrich(film);
+  });
   res.json(data);
 });
 
-// GET /api/marks/:key  /  POST /api/marks/:key
+// GET/POST /api/marks/:key
 app.get("/api/marks/:key", (req, res) => {
   res.json({ marks: deletedMarks[req.params.key] || [] });
 });
 app.post("/api/marks/:key", (req, res) => {
   const { marks } = req.body;
-  if (!Array.isArray(marks)) return res.status(400).json({ error: "marks must be array" });
+  if (!Array.isArray(marks)) return res.status(400).json({ error: "marks debe ser array" });
   deletedMarks[req.params.key] = marks;
+  saveMarks();
   res.json({ ok: true });
 });
 
-// GET /api/config — informa al frontend si TMDB está disponible
+// GET /api/config
 app.get("/api/config", (req, res) => {
   res.json({ tmdb: !!TMDB_KEY });
 });
 
-// Fallback → index.html
+// GET /api/status — info del estado actual de la caché (para depuración)
+app.get("/api/status", (req, res) => {
+  const info = Object.entries(listCache).map(([k, v]) => ({
+    key: k, films: v.films.length, ts: new Date(v.ts).toISOString(), url: v.listUrl,
+  }));
+  res.json({ lists: info, tmdb: !!TMDB_KEY });
+});
+
+// Fallback → frontend
 app.get("*", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
+// ── Utils ─────────────────────────────────────────────────────────────────────
+function makeKey(url) {
+  return Buffer.from(url).toString("base64").replace(/[^a-z0-9]/gi, "").slice(0, 32);
+}
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
-app.listen(PORT, "0.0.0.0", () => console.log(`FA Viewer en puerto ${PORT} | TMDB: ${TMDB_KEY ? "✓" : "no configurado"}`));
+
+app.listen(PORT, "0.0.0.0", () =>
+  log(`FA Viewer en puerto ${PORT} | TMDB: ${TMDB_KEY ? "✓" : "no configurado"} | Listas en caché: ${Object.keys(listCache).length}`)
+);
