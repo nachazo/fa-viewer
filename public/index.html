@@ -13,8 +13,7 @@
       --text:#dde3f4; --text2:#9aa3bc; --muted:#505870;
       --poster:#161b28; --btn:#1e2336;
       --shadow:rgba(0,0,0,.5); --shadowh:rgba(0,0,0,.7);
-      --header:rgba(15,17,23,.96); --accent:#f5a623;
-      --del:#ef4444; --series:#7c3aed; --movie:#b91c1c;
+      --header:rgba(15,17,23,.97); --accent:#f5a623;
     }
     .light {
       --bg:#f2f4fb; --card:#fff; --modal:#fff;
@@ -22,38 +21,36 @@
       --text:#18202e; --text2:#4a5568; --muted:#8896b0;
       --poster:#e1e6f5; --btn:#e8ecf7;
       --shadow:rgba(0,0,0,.07); --shadowh:rgba(0,0,0,.18);
-      --header:rgba(242,244,251,.96); --accent:#d4891a;
+      --header:rgba(242,244,251,.97); --accent:#d4891a;
     }
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-    body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;min-height:100vh;transition:background .25s,color .25s;-webkit-text-size-adjust:100%}
+    body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;min-height:100vh;-webkit-text-size-adjust:100%}
     @keyframes spin   {to{transform:rotate(360deg)}}
-    @keyframes fadeUp {from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
-    @keyframes slideUp{from{opacity:0;transform:translateY(28px)}to{opacity:1;transform:translateY(0)}}
+    @keyframes fadeUp {from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+    @keyframes slideUp{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:translateY(0)}}
     ::-webkit-scrollbar{width:5px}::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
 
-    /* ─── HEADER ─────────────────────────────────────────────────────────── */
+    /* ── HEADER ── */
     header{position:sticky;top:0;z-index:200;background:var(--header);backdrop-filter:blur(18px);border-bottom:1px solid var(--border)}
     .hrow{max-width:1440px;margin:0 auto;padding:0 14px;height:56px;display:flex;align-items:center;gap:10px}
-    .logo{font-family:'Syne',sans-serif;font-weight:800;font-size:18px;flex-shrink:0;letter-spacing:-.02em;line-height:1}
+    .logo{font-family:'Syne',sans-serif;font-weight:800;font-size:18px;flex-shrink:0;letter-spacing:-.02em;line-height:1.1}
     .logo em{color:var(--accent);font-style:normal}
-    .logo small{display:block;font-family:'Inter',sans-serif;font-size:9px;font-weight:400;color:var(--muted);letter-spacing:0;margin-top:2px}
+    .logo small{display:block;font-size:9px;font-family:'Inter',sans-serif;font-weight:400;color:var(--muted);letter-spacing:0;margin-top:2px}
 
-    /* filtros tipo/búsqueda */
     .filters{display:flex;align-items:center;gap:8px;flex:1;min-width:0}
     .fgroup{display:flex;gap:3px;background:var(--btn);border-radius:8px;padding:3px;flex-shrink:0}
-    .fbtn{background:transparent;border:none;color:var(--muted);padding:5px 10px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:700;font-family:inherit;transition:all .15s;white-space:nowrap}
+    .fbtn{background:transparent;border:none;color:var(--muted);padding:5px 10px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:700;font-family:inherit;transition:all .15s}
     .fbtn.on{background:var(--accent);color:#000}
 
-    /* búsqueda */
     .search-wrap{position:relative;flex:1;min-width:80px;max-width:260px}
-    .search-wrap svg{position:absolute;left:9px;top:50%;transform:translateY(-50%);opacity:.35;pointer-events:none;flex-shrink:0}
+    .search-wrap svg{position:absolute;left:9px;top:50%;transform:translateY(-50%);opacity:.35;pointer-events:none}
     #search-input{width:100%;background:var(--btn);border:1px solid var(--border);color:var(--text);padding:6px 10px 6px 30px;border-radius:8px;font-size:12px;font-family:inherit;outline:none;transition:border .15s}
     #search-input:focus{border-color:var(--accent)}
     #search-input::placeholder{color:var(--muted)}
 
     .spacer{flex:1}
     .count{font-size:11px;color:var(--muted);flex-shrink:0;white-space:nowrap}
-    .count .dc{color:var(--del)}
+    .count .dc{color:#ef4444}
     .ibtn{background:var(--btn);border:1px solid var(--border);color:var(--text);padding:7px 11px;border-radius:9px;cursor:pointer;font-size:12px;font-weight:600;font-family:inherit;display:flex;align-items:center;gap:5px;flex-shrink:0;transition:background .15s;white-space:nowrap}
     .ibtn:hover{background:var(--border)}
     .ibtn:disabled{opacity:.45;cursor:not-allowed}
@@ -63,24 +60,33 @@
     .pfill{height:100%;background:var(--accent);transition:width .4s ease}
     @media(max-width:500px){.count{display:none}}
 
-    /* ─── MAIN ───────────────────────────────────────────────────────────── */
+    /* ── MAIN ── */
     main{max-width:1440px;margin:0 auto;padding:16px 12px 60px}
 
-    /* ─── STATUS / ERROR ──────────────────────────────────────────────────── */
+    /* ── EMPTY STATE (sin caché) ── */
+    .empty-state{text-align:center;padding:80px 20px;animation:fadeUp .4s ease}
+    .empty-state .icon{font-size:52px;margin-bottom:16px}
+    .empty-state h2{font-family:'Syne',sans-serif;font-size:20px;margin-bottom:8px;color:var(--text)}
+    .empty-state p{color:var(--muted);font-size:14px;line-height:1.7;max-width:360px;margin:0 auto 24px}
+    .cta-btn{display:inline-flex;align-items:center;gap:8px;background:var(--accent);color:#000;border:none;padding:12px 24px;border-radius:12px;font-size:14px;font-weight:700;font-family:inherit;cursor:pointer;transition:opacity .15s}
+    .cta-btn:hover{opacity:.85}
+    .cta-btn:disabled{opacity:.5;cursor:not-allowed}
+
+    /* ── STATUS / ERROR ── */
     .sbox{display:flex;align-items:center;gap:10px;padding:10px 14px;margin-bottom:14px;background:var(--btn);border-radius:10px;border:1px solid var(--border);animation:fadeUp .3s ease}
     .spi{width:14px;height:14px;border-radius:50%;border:2px solid var(--border);border-top-color:var(--accent);animation:spin .8s linear infinite;flex-shrink:0}
     .stxt{font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .sright{margin-left:auto;font-size:11px;color:var(--muted);flex-shrink:0}
     .ebox{padding:18px 20px;margin-bottom:14px;background:rgba(127,29,29,.18);border-radius:12px;border:1px solid rgba(239,68,68,.25)}
-    .etitle{font-weight:700;color:#f87171;margin-bottom:6px;font-size:14px}
+    .etitle{font-weight:700;color:#f87171;margin-bottom:6px}
     .emsg{font-size:13px;color:#fca5a5;line-height:1.6}
     .rbtn{margin-top:12px;background:#7f1d1d;color:#fff;border:none;padding:8px 18px;border-radius:8px;cursor:pointer;font-size:12px;font-weight:700;font-family:inherit}
 
-    /* ─── GRID ───────────────────────────────────────────────────────────── */
+    /* ── GRID ── */
     .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(128px,1fr));gap:12px}
     @media(min-width:600px){.grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:16px}}
 
-    /* ─── CARD ───────────────────────────────────────────────────────────── */
+    /* ── CARD ── */
     .card{background:var(--card);border-radius:12px;overflow:hidden;cursor:pointer;border:1px solid var(--border);transition:transform .2s cubic-bezier(.16,1,.3,1),box-shadow .2s,border-color .2s,opacity .2s;box-shadow:0 2px 8px var(--shadow);animation:fadeUp .4s ease both;position:relative}
     .card:hover{transform:translateY(-5px) scale(1.015);box-shadow:0 18px 40px var(--shadowh);border-color:var(--border-h)}
     .card.deleted{opacity:.35;border-color:rgba(239,68,68,.35)}
@@ -89,43 +95,36 @@
     .card:hover .pwrap img{transform:scale(1.06)}
     .pph{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:32px;color:var(--muted)}
     .grad{position:absolute;bottom:0;left:0;right:0;height:55%;background:linear-gradient(to top,rgba(0,0,0,.85) 0%,transparent 100%);pointer-events:none}
-
     .tbadge{position:absolute;top:7px;left:7px;color:#fff;font-size:8px;font-weight:800;padding:2px 6px;border-radius:20px;letter-spacing:.1em;text-transform:uppercase;backdrop-filter:blur(4px)}
     .tmovie {background:rgba(185,28,28,.88)}
     .tseries{background:rgba(109,40,217,.88)}
     .rbadge{position:absolute;bottom:30px;left:8px;color:#fbbf24;font-size:12px;font-weight:800;text-shadow:0 1px 4px rgba(0,0,0,.9);pointer-events:none}
-
-    /* X siempre visible en táctil, hover en desktop */
     .delbtn{position:absolute;top:7px;right:7px;z-index:10;width:28px;height:28px;background:rgba(0,0,0,.55);border:1.5px solid rgba(255,255,255,.2);backdrop-filter:blur(4px);border-radius:50%;color:#fff;font-size:14px;font-weight:900;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .15s;line-height:1;opacity:0}
     @media(hover:hover){.card:hover .delbtn{opacity:1}}
     @media(hover:none){.delbtn{opacity:.85}}
-    .delbtn.on{opacity:1!important;background:rgba(239,68,68,.9);border-color:var(--del)}
+    .delbtn.on{opacity:1!important;background:rgba(239,68,68,.9);border-color:#ef4444}
     .delover{position:absolute;inset:0;background:rgba(239,68,68,.1);display:flex;align-items:center;justify-content:center;pointer-events:none}
     .dellabel{background:rgba(239,68,68,.9);color:#fff;font-weight:900;font-size:9px;letter-spacing:.15em;padding:4px 10px;border-radius:4px;transform:rotate(-8deg);text-transform:uppercase}
-
     .cinfo{padding:8px 10px 10px}
     .ctitle{font-size:12px;font-weight:600;color:var(--text);line-height:1.3;font-family:'Syne',sans-serif;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;margin-bottom:2px}
     .cmeta{font-size:10px;color:var(--muted)}
 
-    /* ─── EMPTY/LOADING ──────────────────────────────────────────────────── */
+    /* ── LOADING ── */
     .cmsg{text-align:center;padding:80px 20px}
     .bspin{width:48px;height:48px;border-radius:50%;border:3px solid var(--border);border-top-color:var(--accent);animation:spin .9s linear infinite;margin:0 auto 16px}
     .cmsg p{color:var(--muted);font-size:14px}
-    .cicon{font-size:32px;margin-bottom:10px}
 
-    /* ─── OVERLAY ────────────────────────────────────────────────────────── */
+    /* ── MODAL ── */
     .overlay{position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.9);backdrop-filter:blur(10px);display:flex;align-items:flex-end;justify-content:center;padding:0;animation:fadeUp .2s ease}
     @media(min-width:600px){.overlay{align-items:center;padding:20px}}
-
-    /* ─── MODAL ──────────────────────────────────────────────────────────── */
     .modal{background:var(--modal);border-radius:20px 20px 0 0;width:100%;max-height:92vh;overflow-y:auto;border:1px solid var(--border);box-shadow:0 -20px 60px rgba(0,0,0,.6);animation:slideUp .28s cubic-bezier(.16,1,.3,1);position:relative}
     @media(min-width:600px){.modal{border-radius:20px;max-width:680px;box-shadow:0 40px 100px rgba(0,0,0,.7)}}
     .mhandle{width:36px;height:4px;background:var(--border);border-radius:2px;margin:12px auto 0}
     @media(min-width:600px){.mhandle{display:none}}
-    .xbtn{position:absolute;top:12px;right:12px;z-index:20;background:var(--btn);border:1px solid var(--border);color:var(--text);width:36px;height:36px;border-radius:50%;cursor:pointer;font-size:18px;display:flex;align-items:center;justify-content:center;line-height:1;font-family:inherit;touch-action:manipulation}
+    .xbtn{position:absolute;top:12px;right:12px;z-index:20;background:var(--btn);border:1px solid var(--border);color:var(--text);width:36px;height:36px;border-radius:50%;cursor:pointer;font-size:18px;display:flex;align-items:center;justify-content:center;font-family:inherit;touch-action:manipulation}
     .minner{display:flex;flex-direction:column}
     @media(min-width:500px){.minner{flex-direction:row}}
-    .mposter{width:100%;height:200px;flex-shrink:0;overflow:hidden;background:var(--poster);border-radius:0}
+    .mposter{width:100%;height:200px;flex-shrink:0;overflow:hidden;background:var(--poster)}
     @media(min-width:500px){.mposter{width:180px;height:auto;min-height:260px}}
     .mposter img{width:100%;height:100%;object-fit:cover;object-position:top;display:block}
     .mpostph{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:48px;color:var(--muted)}
@@ -141,31 +140,25 @@
     .mmeta{font-size:13px;color:var(--muted);margin-bottom:12px;display:flex;gap:10px;flex-wrap:wrap}
     .msynopsis{line-height:1.75;color:var(--text2);font-size:13px;margin-bottom:18px}
     .msynnone{color:var(--muted);font-size:13px;font-style:italic;margin-bottom:18px}
-    .mactions{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-top:4px}
-    .falink{display:inline-flex;align-items:center;gap:6px;background:var(--accent);color:#000;padding:10px 18px;border-radius:10px;text-decoration:none;font-weight:700;font-size:13px;transition:opacity .15s;touch-action:manipulation}
+    .mactions{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+    .falink{display:inline-flex;align-items:center;gap:6px;background:var(--accent);color:#000;padding:10px 18px;border-radius:10px;text-decoration:none;font-weight:700;font-size:13px;transition:opacity .15s}
     .falink:hover{opacity:.85}
     .mdelbtn{display:inline-flex;align-items:center;gap:5px;background:transparent;border:1px solid var(--border);color:var(--muted);padding:10px 13px;border-radius:10px;font-weight:700;font-size:12px;font-family:inherit;cursor:pointer;transition:all .15s}
     .mdelbtn.on{background:rgba(239,68,68,.12);border-color:rgba(239,68,68,.35);color:#f87171}
-
-    /* ─── TMDB badge ─────────────────────────────────────────────────────── */
-    .tmdb-note{font-size:10px;color:var(--muted);margin-top:14px;opacity:.6}
+    .tmdb-note{font-size:10px;color:var(--muted);margin-top:12px;opacity:.55}
   </style>
 </head>
 <body>
-
 <header>
   <div class="hrow">
     <div class="logo"><em>FA</em> Viewer<small id="last-update"></small></div>
 
     <div class="filters">
-      <!-- tipo -->
       <div class="fgroup">
         <button class="fbtn on" data-f="all"    onclick="setFilter('all')">Todo</button>
         <button class="fbtn"    data-f="movies" onclick="setFilter('movies')">🎬</button>
         <button class="fbtn"    data-f="series" onclick="setFilter('series')">📺</button>
       </div>
-
-      <!-- búsqueda por nombre -->
       <div class="search-wrap">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
         <input id="search-input" type="search" placeholder="Buscar…" oninput="onSearch(this.value)" autocomplete="off"/>
@@ -175,12 +168,11 @@
     <div class="spacer"></div>
     <div class="count" id="count-lbl"></div>
 
-    <!-- solo-para-borrar -->
-    <button class="ibtn" id="only-del-btn" onclick="toggleOnlyDel()" title="Mostrar solo marcados para borrar">🗑</button>
-    <!-- ocultar marcados -->
+    <button class="ibtn" id="only-del-btn" onclick="toggleOnlyDel()" title="Solo marcados para borrar">🗑</button>
     <button class="ibtn" id="hide-del-btn" onclick="toggleHideDel()" title="Ocultar/mostrar marcados">👁</button>
-
-    <button class="ibtn" id="refresh-btn" onclick="loadList(true)"><span id="refresh-ic">↺</span></button>
+    <button class="ibtn" id="refresh-btn"  onclick="doRefresh()" title="Descargar desde FilmAffinity ahora">
+      <span id="refresh-ic">↺</span> <span class="hide-xs">Actualizar</span>
+    </button>
     <button class="ibtn" onclick="toggleDark()"><span id="dark-ic">☀</span></button>
   </div>
   <div class="pbar"><div class="pfill" id="pfill" style="width:0%"></div></div>
@@ -188,22 +180,23 @@
 
 <main>
   <div id="status-area"></div>
-  <div id="grid" class="grid"></div>
-  <div id="empty-msg" class="cmsg" style="display:none"><div class="cicon">🎬</div><p>No hay títulos que mostrar</p></div>
+  <div id="grid-wrap">
+    <!-- Se rellena por JS -->
+  </div>
 </main>
 
 <!-- Modal -->
 <div class="overlay" id="overlay" style="display:none">
-  <div class="modal" id="modal">
+  <div class="modal">
     <div class="mhandle"></div>
     <button class="xbtn" id="xbtn">✕</button>
     <div class="minner">
       <div class="mposter" id="mposter"></div>
       <div class="minfo">
         <div class="mbadges" id="mbadges"></div>
-        <h2 class="mtitle"  id="mtitle"></h2>
-        <div class="mmeta"  id="mmeta"></div>
-        <p id="msynopsis"   class="msynopsis"></p>
+        <h2 class="mtitle" id="mtitle"></h2>
+        <div class="mmeta" id="mmeta"></div>
+        <p id="msynopsis" class="msynopsis"></p>
         <div class="mactions">
           <a class="falink" id="falink" href="#" target="_blank" rel="noopener">Ver en FilmAffinity ↗</a>
           <button class="mdelbtn" id="mdelbtn" onclick="toggleDelModal()">✕ Marcar para borrar</button>
@@ -214,12 +207,13 @@
   </div>
 </div>
 
+<style>@media(max-width:400px){.hide-xs{display:none}}</style>
+
 <script>
-// ── Config ─────────────────────────────────────────────────────────────────
 const DEFAULT_URL = "https://www.filmaffinity.com/es/userlist.php?user_id=629775&list_id=1013";
 const API = window.FA_API_URL || "";
 
-// ── State ──────────────────────────────────────────────────────────────────
+// ── Estado ─────────────────────────────────────────────────────────────────
 let allFilms    = [];
 let deletedIds  = new Set();
 let filter      = "all";
@@ -227,137 +221,188 @@ let searchQ     = "";
 let hideDel     = false;
 let onlyDel     = false;
 let dark        = true;
-let loading     = false;
+let refreshing  = false;
+let enriching   = false;
 let modalId     = null;
 let tmdbEnabled = false;
 
-// ── URL helpers ────────────────────────────────────────────────────────────
-function getListUrl(){
-  try{const p=new URLSearchParams(location.search);const b=p.get("url");if(b)return atob(b);}catch{}
+// ── URL ────────────────────────────────────────────────────────────────────
+function getListUrl() {
+  try { const p = new URLSearchParams(location.search); const b = p.get("url"); if (b) return atob(b); } catch {}
   return DEFAULT_URL;
 }
-function listKey(){ return "fa_"+btoa(getListUrl()).replace(/[^a-z0-9]/gi,"").slice(0,20); }
+function listKey() { return "fa_" + btoa(getListUrl()).replace(/[^a-z0-9]/gi,"").slice(0,20); }
+function listUrlB64() { return btoa(getListUrl()); }
 
-// ── Status ─────────────────────────────────────────────────────────────────
-function setStatus(msg,done,total){
-  const el=document.getElementById("status-area");
-  if(!msg){el.innerHTML="";setProgress(0);return;}
-  setProgress(total>0?done/total*100:12);
-  el.innerHTML=`<div class="sbox"><div class="spi"></div><span class="stxt">${msg}</span>${total>0?`<span class="sright">${done}/${total}</span>`:""}</div>`;
+// ── Progress / Status ──────────────────────────────────────────────────────
+function setProgress(pct) { document.getElementById("pfill").style.width = pct + "%"; }
+function setStatus(msg, done, total) {
+  const el = document.getElementById("status-area");
+  if (!msg) { el.innerHTML = ""; setProgress(0); return; }
+  setProgress(total > 0 ? (done / total * 100) : 15);
+  el.innerHTML = `<div class="sbox"><div class="spi"></div><span class="stxt">${msg}</span>${total > 0 ? `<span class="sright">${done}/${total}</span>` : ""}</div>`;
 }
-function setError(msg){
+function setError(msg) {
   setProgress(0);
-  document.getElementById("status-area").innerHTML=msg
-    ?`<div class="ebox"><div class="etitle">⚠ Error</div><div class="emsg">${msg}</div><button class="rbtn" onclick="loadList(true)">Reintentar</button></div>`
-    :"";
+  document.getElementById("status-area").innerHTML = msg
+    ? `<div class="ebox"><div class="etitle">⚠ Error</div><div class="emsg">${msg}</div><button class="rbtn" onclick="doRefresh()">Reintentar</button></div>`
+    : "";
 }
-function setProgress(pct){ document.getElementById("pfill").style.width=pct+"%"; }
-function updateCount(){
-  const v=visible();
-  document.getElementById("count-lbl").innerHTML=
-    `${v.length}/${allFilms.length}`+(deletedIds.size>0?` <span class="dc">·${deletedIds.size}✕</span>`:"");
+function updateCount() {
+  const v = visible();
+  document.getElementById("count-lbl").innerHTML =
+    `${v.length}/${allFilms.length}` + (deletedIds.size > 0 ? ` <span class="dc">·${deletedIds.size}✕</span>` : "");
 }
 
-// ── Filtering ──────────────────────────────────────────────────────────────
-function visible(){
-  const q=searchQ.toLowerCase().trim();
-  return allFilms.filter(f=>{
-    const id=f.id||f.title;
-    if(onlyDel  && !deletedIds.has(id)) return false;
-    if(hideDel  &&  deletedIds.has(id)) return false;
-    if(filter==="movies" && f.type==="series") return false;
-    if(filter==="series" && f.type!=="series") return false;
-    if(q && !(f.title||"").toLowerCase().includes(q)) return false;
+// ── Visible ────────────────────────────────────────────────────────────────
+function visible() {
+  const q = searchQ.toLowerCase().trim();
+  return allFilms.filter(f => {
+    const id = f.id || f.title;
+    if (onlyDel && !deletedIds.has(id)) return false;
+    if (hideDel &&  deletedIds.has(id)) return false;
+    if (filter === "movies" && f.type === "series") return false;
+    if (filter === "series" && f.type !== "series") return false;
+    if (q && !(f.title || "").toLowerCase().includes(q)) return false;
     return true;
   });
 }
 
-// ── Load list ──────────────────────────────────────────────────────────────
-async function loadList(force=false){
-  if(loading)return;
-  loading=true; setError(null); toggleRefBtn(true);
-  const url=getListUrl();
-  const apiUrl=`${API}/api/list?url=${encodeURIComponent(btoa(url))}${force?"&force=1":""}`;
-  setStatus("Obteniendo lista de FilmAffinity…");
-  renderGrid([]);
+// ── Arranque: cargar desde caché ───────────────────────────────────────────
+async function init() {
+  // Comprobar TMDB
+  try { const r = await fetch(`${API}/api/config`); const d = await r.json(); tmdbEnabled = !!d.tmdb; } catch {}
 
-  try{
-    const r=await fetch(apiUrl);
-    const data=await r.json();
-    if(!r.ok) throw new Error(data.error||"Error desconocido");
+  await loadMarks();
 
-    allFilms=data.films||[];
-    const d=new Date(data.ts);
-    document.getElementById("last-update").textContent=
-      data.cached
-        ?`Caché ${d.toLocaleDateString("es-ES",{day:"2-digit",month:"2-digit"})} ${d.toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"})}`
-        :`Actualizado ${d.toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"})}`;
+  setStatus("Cargando…");
+  try {
+    const r = await fetch(`${API}/api/list?url=${encodeURIComponent(listUrlB64())}`);
+    const d = await r.json();
 
+    if (d.empty || !d.films || d.films.length === 0) {
+      // Sin caché: mostrar pantalla de bienvenida con botón
+      setStatus(null);
+      showEmptyState();
+      return;
+    }
+
+    allFilms = d.films;
+    showLastUpdate(d.ts, d.cached);
     setStatus(null);
-    renderGrid(allFilms);
+    renderGrid();
     updateCount();
-    loading=false; toggleRefBtn(false);
 
-    // Enriquecer con TMDB si está disponible
-    if(tmdbEnabled) await enrichAll();
+    // Enriquecer con TMDB en segundo plano si está disponible
+    if (tmdbEnabled) enrichAll();
 
-  }catch(err){
-    setError(err.message);
-    loading=false; toggleRefBtn(false);
+  } catch (e) {
+    setStatus(null);
+    setError("No se pudo conectar con el servidor: " + e.message);
   }
 }
 
-async function enrichAll(){
-  const total=allFilms.length;
-  for(let i=0;i<allFilms.length;i++){
-    const f=allFilms[i];
-    if(f._enriched) continue;
-    setStatus(`Cargando sinopsis y detalles…`,i+1,total);
-    try{
-      const params=new URLSearchParams({title:f.title||"",year:f.year||"",type:f.type||"movie"});
-      const r=await fetch(`${API}/api/enrich/${f.id}?${params}`);
-      if(r.ok){
-        const extra=await r.json();
-        if(Object.keys(extra).length>0){
-          allFilms[i]={...f,...extra,_enriched:true};
+// ── Pantalla vacía (primera vez, sin caché) ────────────────────────────────
+function showEmptyState() {
+  document.getElementById("grid-wrap").innerHTML = `
+    <div class="empty-state">
+      <div class="icon">🎬</div>
+      <h2>Lista vacía</h2>
+      <p>Todavía no hay datos descargados de FilmAffinity.<br>Pulsa el botón para cargar la lista por primera vez.</p>
+      <button class="cta-btn" id="cta-refresh-btn" onclick="doRefresh()">
+        <span id="cta-icon">↺</span> Descargar lista ahora
+      </button>
+    </div>`;
+}
+
+// ── Refresco manual (única llamada a FA) ───────────────────────────────────
+async function doRefresh() {
+  if (refreshing) return;
+  refreshing = true;
+  setError(null);
+  setBusy(true);
+
+  // Bloquear también el CTA de la pantalla vacía si existe
+  const cta = document.getElementById("cta-refresh-btn");
+  if (cta) { cta.disabled = true; document.getElementById("cta-icon").className = "spin"; }
+
+  setStatus("Conectando con FilmAffinity…");
+
+  try {
+    const r = await fetch(`${API}/api/refresh?url=${encodeURIComponent(listUrlB64())}`, { method: "POST" });
+    const d = await r.json();
+
+    if (!r.ok) throw new Error(d.error || "Error desconocido");
+
+    allFilms = d.films || [];
+    showLastUpdate(d.ts, false);
+    setStatus(null);
+    renderGrid();
+    updateCount();
+
+    if (tmdbEnabled) enrichAll();
+
+  } catch (e) {
+    setError(e.message);
+  } finally {
+    refreshing = false;
+    setBusy(false);
+    if (cta) { cta.disabled = false; document.getElementById("cta-icon").className = ""; }
+  }
+}
+
+// ── Enriquecimiento TMDB ───────────────────────────────────────────────────
+async function enrichAll() {
+  if (enriching) return;
+  enriching = true;
+  const total = allFilms.length;
+  for (let i = 0; i < allFilms.length; i++) {
+    const f = allFilms[i];
+    if (f._enriched) continue;
+    setStatus(`Cargando sinopsis… (${i+1}/${total})`, i+1, total);
+    try {
+      const params = new URLSearchParams({ title: f.title||"", year: f.year||"", type: f.type||"movie" });
+      const r = await fetch(`${API}/api/enrich/${f.id}?${params}`);
+      if (r.ok) {
+        const extra = await r.json();
+        if (Object.keys(extra).length > 0) {
+          allFilms[i] = { ...f, ...extra, _enriched: true };
           updateCard(allFilms[i]);
-          if(modalId===f.id) fillModal(allFilms[i]);
+          if (modalId === f.id) fillModal(allFilms[i]);
         } else {
-          allFilms[i]={...f,_enriched:true};
+          allFilms[i] = { ...f, _enriched: true };
         }
       }
-    }catch{}
-    // pequeña pausa para no saturar TMDB
+    } catch {}
     await sleep(120);
   }
   setStatus(null);
   updateCount();
+  enriching = false;
 }
 
 // ── Grid ───────────────────────────────────────────────────────────────────
-function renderGrid(films){
-  const grid=document.getElementById("grid");
-  const empty=document.getElementById("empty-msg");
-  if(films.length===0&&!loading){
-    grid.innerHTML=`<div class="cmsg"><div class="bspin"></div><p>Cargando…</p></div>`;
-    empty.style.display="none"; return;
+function renderGrid() {
+  const wrap = document.getElementById("grid-wrap");
+  const vis  = visible();
+  if (vis.length === 0) {
+    wrap.innerHTML = `<div class="cmsg"><div class="cicon" style="font-size:32px;margin-bottom:10px">🎬</div><p>No hay títulos que mostrar</p></div>`;
+    return;
   }
-  const vis=visible();
-  if(vis.length===0){grid.innerHTML="";empty.style.display="block";return;}
-  empty.style.display="none";
-  grid.innerHTML=vis.map((f,i)=>cardHTML(f,i)).join("");
+  wrap.innerHTML = `<div class="grid">${vis.map((f,i) => cardHTML(f,i)).join("")}</div>`;
   updateCount();
 }
 
-function cardHTML(f,i){
-  const id=f.id||f.title;
-  const isDel=deletedIds.has(id);
-  const tb=f.type?`<div class="tbadge ${f.type==="series"?"tseries":"tmovie"}">${f.type==="series"?"SERIE":"FILM"}</div>`:"";
-  const rb=f.rating?`<div class="rbadge">★ ${f.rating}</div>`:"";
-  const dov=isDel?`<div class="delover"><span class="dellabel">BORRAR</span></div>`:"";
-  const img=f.poster?`<img src="${esc(f.poster)}" alt="${esc(f.title)}" loading="lazy" onerror="this.style.display='none'">`
-                    :`<div class="pph">🎬</div>`;
-  const meta=[f.year,f.duration?(f.type==="series"?f.duration+"m/ep":f.duration+"min"):null].filter(Boolean).join(" · ");
+function cardHTML(f, i) {
+  const id    = f.id || f.title;
+  const isDel = deletedIds.has(id);
+  const tb    = f.type ? `<div class="tbadge ${f.type==="series"?"tseries":"tmovie"}">${f.type==="series"?"SERIE":"FILM"}</div>` : "";
+  const rb    = f.rating ? `<div class="rbadge">★ ${f.rating}</div>` : "";
+  const dov   = isDel ? `<div class="delover"><span class="dellabel">BORRAR</span></div>` : "";
+  const img   = f.poster
+    ? `<img src="${esc(f.poster)}" alt="${esc(f.title)}" loading="lazy" onerror="this.style.display='none'">`
+    : `<div class="pph">🎬</div>`;
+  const meta  = [f.year, f.duration ? (f.type==="series" ? f.duration+"m/ep" : f.duration+"min") : null].filter(Boolean).join(" · ");
   return `<div class="card${isDel?" deleted":""}" id="card-${f.id}" onclick="openModal('${f.id}')" style="animation-delay:${i*.02}s">
     <div class="pwrap">${img}<div class="grad"></div>${tb}${rb}${dov}
       <button class="delbtn${isDel?" on":""}" onclick="event.stopPropagation();toggleDel('${id}')" title="${isDel?"Quitar marca":"Marcar para borrar"}">✕</button>
@@ -369,123 +414,131 @@ function cardHTML(f,i){
   </div>`;
 }
 
-function updateCard(film){
-  const el=document.getElementById("card-"+film.id);
-  if(!el)return;
-  const vis=visible();
-  const idx=vis.findIndex(f=>f.id===film.id);
-  if(idx>=0) el.outerHTML=cardHTML(film,idx);
+function updateCard(film) {
+  const el = document.getElementById("card-" + film.id);
+  if (!el) return;
+  const vis = visible();
+  const idx = vis.findIndex(f => f.id === film.id);
+  if (idx >= 0) el.outerHTML = cardHTML(film, idx);
 }
 
 // ── Delete ─────────────────────────────────────────────────────────────────
-async function toggleDel(id){
-  if(deletedIds.has(id)) deletedIds.delete(id); else deletedIds.add(id);
-  renderGrid(allFilms); syncMarks();
+async function toggleDel(id) {
+  if (deletedIds.has(id)) deletedIds.delete(id); else deletedIds.add(id);
+  renderGrid(); syncMarks();
 }
-async function toggleDelModal(){
-  if(!modalId)return;
+async function toggleDelModal() {
+  if (!modalId) return;
   await toggleDel(modalId);
   updateModalDelBtn(modalId);
 }
-function updateModalDelBtn(id){
-  const btn=document.getElementById("mdelbtn");
-  if(!btn)return;
-  const on=deletedIds.has(id);
-  btn.className="mdelbtn"+(on?" on":"");
-  btn.textContent=on?"✕ Quitar marca":"✕ Marcar para borrar";
+function updateModalDelBtn(id) {
+  const btn = document.getElementById("mdelbtn");
+  if (!btn) return;
+  const on = deletedIds.has(id);
+  btn.className = "mdelbtn" + (on ? " on" : "");
+  btn.textContent = on ? "✕ Quitar marca" : "✕ Marcar para borrar";
 }
-async function syncMarks(){
-  try{await fetch(`${API}/api/marks/${listKey()}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({marks:[...deletedIds]})});}catch{}
+async function syncMarks() {
+  try {
+    await fetch(`${API}/api/marks/${listKey()}`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ marks: [...deletedIds] }),
+    });
+  } catch {}
 }
-async function loadMarks(){
-  try{const r=await fetch(`${API}/api/marks/${listKey()}`);const d=await r.json();deletedIds=new Set(d.marks||[]);}catch{}
+async function loadMarks() {
+  try {
+    const r = await fetch(`${API}/api/marks/${listKey()}`);
+    const d = await r.json();
+    deletedIds = new Set(d.marks || []);
+  } catch {}
 }
 
 // ── Modal ──────────────────────────────────────────────────────────────────
-function openModal(filmId){
-  const film=allFilms.find(f=>f.id===filmId);
-  if(!film)return;
-  modalId=filmId; fillModal(film);
-  document.getElementById("overlay").style.display="flex";
-  document.body.style.overflow="hidden";
-  document.addEventListener("keydown",onEsc);
+function openModal(filmId) {
+  const film = allFilms.find(f => f.id === filmId);
+  if (!film) return;
+  modalId = filmId;
+  fillModal(film);
+  document.getElementById("overlay").style.display = "flex";
+  document.body.style.overflow = "hidden";
+  document.addEventListener("keydown", onEsc);
 }
-function fillModal(film){
-  const faUrl=film.filmaffinity_url||`https://www.filmaffinity.com/es/film${film.id}.html`;
-  document.getElementById("mposter").innerHTML=film.poster
-    ?`<img src="${esc(film.poster)}" alt="${esc(film.title)}" onerror="this.parentElement.innerHTML='<div class=mpostph>🎬</div>'">`
-    :`<div class="mpostph">🎬</div>`;
-  const b=[];
-  if(film.type) b.push(`<span class="mbadge ${film.type==="series"?"mbseries":"mbmovie"}">${film.type==="series"?"📺 SERIE":"🎬 PELÍCULA"}</span>`);
-  if(film.rating) b.push(`<span class="mbadge mbrating">★ ${film.rating}</span>`);
-  document.getElementById("mbadges").innerHTML=b.join("");
-  document.getElementById("mtitle").textContent=film.title||"Sin título";
-  const meta=[];
-  if(film.year)     meta.push("📅 "+film.year);
-  if(film.duration) meta.push("⏱ "+(film.type==="series"?film.duration+" min/ep":film.duration+" min"));
-  document.getElementById("mmeta").innerHTML=meta.join(" &nbsp;·&nbsp; ");
-  const se=document.getElementById("msynopsis");
-  se.className=film.synopsis?"msynopsis":"msynnone";
-  se.textContent=film.synopsis||"Sin sinopsis disponible";
-  document.getElementById("falink").href=faUrl;
+function fillModal(film) {
+  const faUrl = film.filmaffinity_url || `https://www.filmaffinity.com/es/film${film.id}.html`;
+  document.getElementById("mposter").innerHTML = film.poster
+    ? `<img src="${esc(film.poster)}" alt="${esc(film.title)}" onerror="this.parentElement.innerHTML='<div class=mpostph>🎬</div>'">`
+    : `<div class="mpostph">🎬</div>`;
+  const b = [];
+  if (film.type) b.push(`<span class="mbadge ${film.type==="series"?"mbseries":"mbmovie"}">${film.type==="series"?"📺 SERIE":"🎬 PELÍCULA"}</span>`);
+  if (film.rating) b.push(`<span class="mbadge mbrating">★ ${film.rating}</span>`);
+  document.getElementById("mbadges").innerHTML = b.join("");
+  document.getElementById("mtitle").textContent = film.title || "Sin título";
+  const meta = [];
+  if (film.year)     meta.push("📅 " + film.year);
+  if (film.duration) meta.push("⏱ " + (film.type === "series" ? film.duration + " min/ep" : film.duration + " min"));
+  document.getElementById("mmeta").innerHTML = meta.join(" &nbsp;·&nbsp; ");
+  const se = document.getElementById("msynopsis");
+  se.className = film.synopsis ? "msynopsis" : "msynnone";
+  se.textContent = film.synopsis || (film._enriched ? "Sin sinopsis disponible" : "Cargando sinopsis…");
+  document.getElementById("falink").href = faUrl;
   updateModalDelBtn(film.id);
-  document.getElementById("tmdb-note").textContent=
-    film._enriched && film.synopsis?"Sinopsis vía The Movie Database (TMDB)":"";
+  document.getElementById("tmdb-note").textContent = film._enriched && film.synopsis ? "Sinopsis vía The Movie Database" : "";
 }
-function closeModal(){
-  document.getElementById("overlay").style.display="none";
-  document.body.style.overflow=""; modalId=null;
-  document.removeEventListener("keydown",onEsc);
+function closeModal() {
+  document.getElementById("overlay").style.display = "none";
+  document.body.style.overflow = ""; modalId = null;
+  document.removeEventListener("keydown", onEsc);
 }
-function onEsc(e){if(e.key==="Escape")closeModal();}
+function onEsc(e) { if (e.key === "Escape") closeModal(); }
 
-// ── UI controls ────────────────────────────────────────────────────────────
-function setFilter(f){
-  filter=f;
-  document.querySelectorAll(".fbtn").forEach(b=>b.classList.toggle("on",b.dataset.f===f));
-  renderGrid(allFilms);
+// ── UI ─────────────────────────────────────────────────────────────────────
+function setFilter(f) {
+  filter = f;
+  document.querySelectorAll(".fbtn").forEach(b => b.classList.toggle("on", b.dataset.f === f));
+  renderGrid();
 }
-function onSearch(v){ searchQ=v; renderGrid(allFilms); }
-function toggleHideDel(){
-  if(onlyDel){onlyDel=false;document.getElementById("only-del-btn").classList.remove("on");}
-  hideDel=!hideDel;
-  document.getElementById("hide-del-btn").classList.toggle("on",hideDel);
-  document.getElementById("hide-del-btn").title=hideDel?"Mostrar marcados":"Ocultar marcados";
-  renderGrid(allFilms);
+function onSearch(v) { searchQ = v; renderGrid(); }
+function toggleHideDel() {
+  if (onlyDel) { onlyDel = false; document.getElementById("only-del-btn").classList.remove("on"); }
+  hideDel = !hideDel;
+  document.getElementById("hide-del-btn").classList.toggle("on", hideDel);
+  renderGrid();
 }
-function toggleOnlyDel(){
-  if(hideDel){hideDel=false;document.getElementById("hide-del-btn").classList.remove("on");}
-  onlyDel=!onlyDel;
-  document.getElementById("only-del-btn").classList.toggle("on",onlyDel);
-  document.getElementById("only-del-btn").title=onlyDel?"Mostrar todos":"Mostrar solo para borrar";
-  renderGrid(allFilms);
+function toggleOnlyDel() {
+  if (hideDel) { hideDel = false; document.getElementById("hide-del-btn").classList.remove("on"); }
+  onlyDel = !onlyDel;
+  document.getElementById("only-del-btn").classList.toggle("on", onlyDel);
+  renderGrid();
 }
-function toggleDark(){
-  dark=!dark;
-  document.body.classList.toggle("light",!dark);
-  document.getElementById("dark-ic").textContent=dark?"☀":"☾";
+function toggleDark() {
+  dark = !dark;
+  document.body.classList.toggle("light", !dark);
+  document.getElementById("dark-ic").textContent = dark ? "☀" : "☾";
 }
-function toggleRefBtn(busy){
-  document.getElementById("refresh-btn").disabled=busy;
-  document.getElementById("refresh-ic").className=busy?"spin":"";
+function setBusy(busy) {
+  document.getElementById("refresh-btn").disabled = busy;
+  document.getElementById("refresh-ic").className = busy ? "spin" : "";
+}
+function showLastUpdate(ts, cached) {
+  if (!ts) return;
+  const d = new Date(ts);
+  document.getElementById("last-update").textContent =
+    (cached ? "Caché " : "") +
+    d.toLocaleDateString("es-ES", { day:"2-digit", month:"2-digit" }) + " " +
+    d.toLocaleTimeString("es-ES", { hour:"2-digit", minute:"2-digit" });
 }
 
 // ── Utils ──────────────────────────────────────────────────────────────────
-function esc(s){return(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
-function sleep(ms){return new Promise(r=>setTimeout(r,ms));}
+function esc(s) { return (s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 // ── Init ───────────────────────────────────────────────────────────────────
-document.getElementById("xbtn").addEventListener("click",closeModal);
-document.getElementById("overlay").addEventListener("click",function(e){if(e.target===this)closeModal();});
+document.getElementById("xbtn").addEventListener("click", closeModal);
+document.getElementById("overlay").addEventListener("click", function(e) { if (e.target === this) closeModal(); });
 
-(async()=>{
-  // Comprobar si TMDB está configurado
-  try{const r=await fetch(`${API}/api/config`);const d=await r.json();tmdbEnabled=!!d.tmdb;}catch{}
-
-  await loadMarks();
-  await loadList(false);
-  setInterval(()=>loadList(false),24*60*60*1000);
-})();
+init();
 </script>
 </body>
 </html>
