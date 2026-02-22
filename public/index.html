@@ -322,33 +322,97 @@ async function doRefresh() {
   setError(null);
   setBusy(true);
 
-  // Bloquear también el CTA de la pantalla vacía si existe
   const cta = document.getElementById("cta-refresh-btn");
-  if (cta) { cta.disabled = true; document.getElementById("cta-icon").className = "spin"; }
+  if (cta) { cta.disabled = true; const ci = document.getElementById("cta-icon"); if(ci) ci.className = "spin"; }
 
-  setStatus("Conectando con FilmAffinity…");
+  const b64      = listUrlB64();
+  const urlParam = `url=${encodeURIComponent(b64)}`;
+  debugLog(`→ POST /api/refresh`);
+  setStatus("Iniciando descarga…");
 
   try {
-    const r = await fetch(`${API}/api/refresh?url=${encodeURIComponent(listUrlB64())}`, { method: "POST" });
-    const d = await r.json();
+    // 1. Lanzar el job (responde inmediatamente con 202)
+    const r = await fetch(`${API}/api/refresh?${urlParam}`, { method: "POST" });
+    debugLog(`← HTTP ${r.status}`);
+    if (!r.ok) {
+      let msg = `Error del servidor (${r.status})`;
+      try { const d = await r.json(); msg = d.error || msg; } catch {}
+      throw new Error(msg);
+    }
 
-    if (!r.ok) throw new Error(d.error || "Error desconocido");
-
-    allFilms = d.films || [];
-    showLastUpdate(d.ts, false);
-    setStatus(null);
-    renderGrid();
-    updateCount();
-
-    if (tmdbEnabled) enrichAll();
+    // 2. Hacer polling hasta que el job termine
+    await pollRefresh(urlParam);
 
   } catch (e) {
+    debugLog(`✗ ${e.message}`);
     setError(e.message);
-  } finally {
     refreshing = false;
     setBusy(false);
-    if (cta) { cta.disabled = false; document.getElementById("cta-icon").className = ""; }
+    if (cta) { cta.disabled = false; const ci = document.getElementById("cta-icon"); if(ci) ci.className = ""; }
   }
+}
+
+async function pollRefresh(urlParam) {
+  const cta = document.getElementById("cta-refresh-btn");
+  for (let attempt = 0; attempt < 120; attempt++) {   // máx 4 minutos
+    await sleep(2000);
+    try {
+      const r = await fetch(`${API}/api/refresh-status?${urlParam}`);
+      debugLog(`[poll] HTTP ${r.status}`);
+      if (!r.ok) continue;
+
+      const d = await r.json();
+      debugLog(`[poll] status=${d.status} ${d.progress || d.error || ""}`);
+
+      if (d.status === "running") {
+        setStatus(d.progress || "Descargando…");
+        continue;
+      }
+
+      if (d.status === "error") {
+        throw new Error(d.error || "Error desconocido durante la descarga");
+      }
+
+      if (d.status === "done") {
+        allFilms = d.films || [];
+        showLastUpdate(d.ts, false);
+        setStatus(null);
+        clearDebug();
+        renderGrid();
+        updateCount();
+        if (tmdbEnabled) enrichAll();
+
+        refreshing = false;
+        setBusy(false);
+        if (cta) { cta.disabled = false; const ci = document.getElementById("cta-icon"); if(ci) ci.className = ""; }
+        return;
+      }
+
+    } catch(e) {
+      if (e.message.includes("Error desconocido") || attempt > 5) throw e;
+      // Error de red puntual — seguir intentando
+      debugLog(`[poll] error de red: ${e.message}, reintentando…`);
+    }
+  }
+  throw new Error("Timeout: la descarga tardó demasiado. Inténtalo de nuevo.");
+}
+
+// ── Debug visible en pantalla ──────────────────────────────────────────────
+function debugLog(msg) {
+  console.log(msg);
+  let box = document.getElementById("debug-box");
+  if (!box) {
+    box = document.createElement("div");
+    box.id = "debug-box";
+    box.style.cssText = "position:fixed;bottom:16px;left:16px;right:16px;background:#0a0c12;border:1px solid #333;border-radius:10px;padding:12px 14px;font-family:monospace;font-size:11px;color:#7fffb0;z-index:9999;max-height:160px;overflow-y:auto;";
+    document.body.appendChild(box);
+  }
+  box.innerHTML += `<div>${new Date().toLocaleTimeString()} ${msg}</div>`;
+  box.scrollTop = box.scrollHeight;
+}
+function clearDebug() {
+  const box = document.getElementById("debug-box");
+  if (box) box.remove();
 }
 
 // ── Enriquecimiento TMDB ───────────────────────────────────────────────────
