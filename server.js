@@ -239,9 +239,13 @@ app.get("/api/list", async (req, res) => {
   return res.json({ films: [], cached: false, ts: null, empty: true });
 });
 
+// Estado de jobs en curso: key → { status, error, progress }
+const jobs = {};
+
 // POST /api/refresh?url=BASE64
-// → ÚNICO punto que va a FilmAffinity. Solo se llama cuando el usuario pulsa Actualizar.
-app.post("/api/refresh", async (req, res) => {
+// Devuelve 202 inmediatamente y procesa en background.
+// El cliente hace polling a GET /api/refresh-status?url=BASE64
+app.post("/api/refresh", (req, res) => {
   const { url } = req.query;
   if (!url) return res.status(400).json({ error: "Falta parámetro url" });
 
@@ -253,17 +257,64 @@ app.post("/api/refresh", async (req, res) => {
     return res.status(400).json({ error: "Solo se admiten URLs de filmaffinity.com" });
 
   const key = makeKey(listUrl);
-  log("[REFRESH] Iniciando para", listUrl);
 
+  // Si ya hay un job en curso para esta lista, no lanzar otro
+  if (jobs[key] && jobs[key].status === "running")
+    return res.json({ status: "running", message: "Ya hay una descarga en curso" });
+
+  // Iniciar job en background
+  jobs[key] = { status: "running", progress: "Conectando con FilmAffinity…", error: null };
+  runRefreshJob(key, listUrl);
+
+  res.json({ status: "started" });
+});
+
+// GET /api/refresh-status?url=BASE64
+// El cliente hace polling cada 2s para saber el estado del job.
+app.get("/api/refresh-status", (req, res) => {
+  const { url } = req.query;
+  if (!url) return res.status(400).json({ error: "Falta url" });
+
+  let listUrl;
+  try { listUrl = /^https?:\/\//.test(url) ? url : atob(url); }
+  catch { return res.status(400).json({ error: "URL inválida" }); }
+
+  const key = makeKey(listUrl);
+  const job = jobs[key];
+
+  if (!job) {
+    // No hay job — devolver caché si existe, o indicar que no hay nada
+    const cached = listCache[key];
+    if (cached) return res.json({ status: "done", films: cached.films, ts: cached.ts });
+    return res.json({ status: "idle" });
+  }
+
+  if (job.status === "running")
+    return res.json({ status: "running", progress: job.progress });
+
+  if (job.status === "error")
+    return res.json({ status: "error", error: job.error });
+
+  if (job.status === "done") {
+    const cached = listCache[key];
+    delete jobs[key]; // limpiar job tras entregar resultado
+    return res.json({ status: "done", films: cached.films, ts: cached.ts });
+  }
+
+  res.json({ status: "unknown" });
+});
+
+async function runRefreshJob(key, listUrl) {
+  log("[JOB] Iniciando para", listUrl);
   try {
-    // Página 1
+    jobs[key].progress = "Descargando página 1…";
     const html1      = await faFetch(listUrl);
     let allFilms     = parseListPage(html1);
     const totalPages = parseTotalPages(html1);
-    log("[REFRESH] Página 1:", allFilms.length, "films, totalPages:", totalPages);
+    log("[JOB] Página 1:", allFilms.length, "films, totalPages:", totalPages);
 
-    // Páginas siguientes — pausa 2-3 s entre ellas
     for (let page = 2; page <= Math.min(totalPages, 30); page++) {
+      jobs[key].progress = `Descargando página ${page} de ${totalPages}…`;
       await sleep(2000 + Math.random() * 1000);
       try {
         const sep  = listUrl.includes("?") ? "&" : "?";
@@ -271,28 +322,28 @@ app.post("/api/refresh", async (req, res) => {
         const pf   = parseListPage(html);
         if (pf.length === 0) break;
         allFilms = allFilms.concat(pf);
-        log("[REFRESH] Página", page, "→", pf.length, "films");
+        log("[JOB] Página", page, "→", pf.length, "films");
       } catch (e) {
-        log("[REFRESH] Paginación parada en p." + page + ":", e.message);
+        log("[JOB] Paginación parada en p." + page + ":", e.message);
         break;
       }
     }
 
-    // Orden inverso
     allFilms = allFilms.reverse();
-    log("[REFRESH] Total:", allFilms.length, "films");
+    log("[JOB] Total:", allFilms.length, "films");
 
-    // Guardar en caché
     listCache[key] = { films: allFilms, ts: Date.now(), listUrl };
     saveCache();
 
-    res.json({ films: allFilms, cached: false, ts: listCache[key].ts, total: allFilms.length });
+    jobs[key].status = "done";
+    log("[JOB] Completado");
 
   } catch (err) {
-    log("[REFRESH] Error:", err.message);
-    res.status(500).json({ error: err.message });
+    log("[JOB] Error:", err.message);
+    jobs[key].status = "error";
+    jobs[key].error  = err.message;
   }
-});
+}
 
 // GET /api/enrich/:faId?title=X&year=Y&type=movie|series
 app.get("/api/enrich/:faId", async (req, res) => {
