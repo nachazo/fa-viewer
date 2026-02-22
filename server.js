@@ -52,41 +52,62 @@ async function getFACookie() {
   } catch {}
 }
 
-async function faFetch(url, retries = 3) {
+async function faFetch(url, retries = 4) {
   await getFACookie();
-  const headers = {
-    "User-Agent":      randUA(),
-    "Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "Accept-Language": "es-ES,es;q=0.9",
-    "Referer":         "https://www.filmaffinity.com/es/main.html",
-    "DNT":             "1",
-  };
-  if (faCookie) headers["Cookie"] = faCookie;
+
+  let lastError = new Error("Sin respuesta tras todos los reintentos");
 
   for (let i = 0; i < retries; i++) {
     try {
-      const r = await fetch(url, { headers, redirect: "follow", timeout: 20000 });
+      const headers = {
+        "User-Agent":      randUA(),
+        "Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "es-ES,es;q=0.9",
+        "Referer":         "https://www.filmaffinity.com/es/main.html",
+        "DNT":             "1",
+      };
+      if (faCookie) headers["Cookie"] = faCookie;
+
+      const r = await fetch(url, { headers, redirect: "follow", timeout: 25000 });
+
+      // Rate-limit o servicio no disponible → esperar y reintentar
       if (r.status === 429 || r.status === 503) {
-        const wait = Math.pow(2, i + 2) * 1000 + Math.random() * 1000;
-        console.log(`FA ${r.status} → esperando ${Math.round(wait/1000)}s`);
+        const wait = Math.pow(2, i + 2) * 1000 + Math.random() * 1500;
+        console.log(`FA ${r.status} en intento ${i+1} → esperando ${Math.round(wait/1000)}s`);
+        lastError = new Error(`HTTP ${r.status} — FilmAffinity limita las peticiones. Espera unos minutos y pulsa Actualizar.`);
+        faCookie = ""; // forzar renovación de cookie en próximo intento
         await sleep(wait);
-        faCookie = ""; // renovar cookie
         continue;
       }
+
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
+
       const html = await r.text();
+
+      if (typeof html !== "string" || html.trim().length === 0)
+        throw new Error("Respuesta vacía de FilmAffinity");
+
       if (html.includes("Just a moment") || html.includes("cf-browser-verification"))
         throw new Error("CLOUDFLARE_BLOCK");
-      return html;
+
+      return html; // ← éxito
+
     } catch (e) {
-      if (i === retries - 1) throw e;
-      await sleep(3000);
+      lastError = e;
+      if (e.message === "CLOUDFLARE_BLOCK") throw e; // no reintentar Cloudflare
+      if (i < retries - 1) {
+        console.log(`Error en intento ${i+1}: ${e.message} — reintentando…`);
+        await sleep(3000 + i * 1000);
+      }
     }
   }
+
+  throw lastError; // lanzar el último error conocido
 }
 
 // Extraer películas de UNA página de lista FA
 function parseListPage(html) {
+  if (typeof html !== "string") return [];
   const $ = cheerio.load(html);
   const films = [];
 
@@ -138,6 +159,7 @@ function parseListPage(html) {
 }
 
 function parseTotalPages(html) {
+  if (typeof html !== "string") return 1;
   const $ = cheerio.load(html);
   let max = 1;
   $(".pager a, .pagination a, [class*='pager'] a").each((_, el) => {
