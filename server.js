@@ -1,17 +1,21 @@
-const express = require("express");
-const cors    = require("cors");
-const cheerio = require("cheerio");
-const fetch   = require("node-fetch");
+const express   = require("express");
+const cors      = require("cors");
+const cheerio   = require("cheerio");
+const fetch     = require("node-fetch");
 const rateLimit = require("express-rate-limit");
-const path    = require("path");
+const path      = require("path");
 
 const app  = express();
 const PORT = process.env.PORT || 3001;
 
-// ── Caché ─────────────────────────────────────────────────────────────────────
-const filmCache      = {};
-const CACHE_TTL_LIST = 24 * 60 * 60 * 1000; // 24 h lista
-const CACHE_TTL_FILM = 24 * 60 * 60 * 1000; // 24 h ficha
+// TMDB API key — pon la tuya en Render como variable de entorno TMDB_KEY
+// Consíguela gratis en https://www.themoviedb.org/settings/api (registro en 1 min)
+const TMDB_KEY = process.env.TMDB_KEY || "";
+
+// ── Caché 24 h ────────────────────────────────────────────────────────────────
+const cache   = {};  // key → { data, ts }
+const TTL_LIST = 24 * 60 * 60 * 1000;
+const TTL_FILM = 24 * 60 * 60 * 1000;
 
 // ── Marcas compartidas ────────────────────────────────────────────────────────
 const deletedMarks = {};
@@ -20,110 +24,96 @@ const deletedMarks = {};
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
-app.use("/api/", rateLimit({ windowMs: 60_000, max: 60 }));
+app.use("/api/", rateLimit({ windowMs: 60_000, max: 120 }));
 
-// ── Pool de User-Agents reales ────────────────────────────────────────────────
-const USER_AGENTS = [
+// ─────────────────────────────────────────────────────────────────────────────
+// FILMAFFINITY — solo para obtener la lista (mínimas peticiones)
+// ─────────────────────────────────────────────────────────────────────────────
+const UA_POOL = [
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_2) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15",
+  "Mozilla/5.0 (X11; Linux x86_64; rv:122.0) Gecko/20100101 Firefox/122.0",
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0",
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_2_1) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15",
-  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0",
 ];
-function randomUA() { return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)]; }
+const randUA = () => UA_POOL[Math.floor(Math.random() * UA_POOL.length)];
 
-// ── Cookie de sesión (se renueva visitando la portada) ────────────────────────
-let sessionCookie = "";
-let sessionTs     = 0;
-const SESSION_TTL = 60 * 60 * 1000; // renovar cada hora
-
-async function ensureSession() {
-  if (sessionCookie && Date.now() - sessionTs < SESSION_TTL) return;
+// Cookie de sesión FA (se obtiene una sola vez)
+let faCookie = "";
+let faCookieTs = 0;
+async function getFACookie() {
+  if (faCookie && Date.now() - faCookieTs < 60 * 60 * 1000) return;
   try {
-    const res = await fetch("https://www.filmaffinity.com/es/main.html", {
-      headers: { "User-Agent": randomUA(), "Accept-Language": "es-ES,es;q=0.9" },
-      redirect: "follow",
-      timeout: 15000,
+    const r = await fetch("https://www.filmaffinity.com/es/main.html", {
+      headers: { "User-Agent": randUA() }, timeout: 12000,
     });
-    const raw = res.headers.get("set-cookie") || "";
-    // Extraer todas las cookies relevantes
-    const cookies = raw.split(",")
-      .map(c => c.split(";")[0].trim())
-      .filter(c => c.includes("="))
-      .join("; ");
-    if (cookies) { sessionCookie = cookies; sessionTs = Date.now(); }
-  } catch { /* si falla, seguimos sin cookie */ }
+    const raw = r.headers.get("set-cookie") || "";
+    const c = raw.split(",").map(s => s.split(";")[0].trim()).filter(s => s.includes("=")).join("; ");
+    if (c) { faCookie = c; faCookieTs = Date.now(); }
+  } catch {}
 }
 
-// ── Fetch con reintentos y backoff exponencial ────────────────────────────────
-async function faFetch(url, attempt = 0) {
-  await ensureSession();
-
+async function faFetch(url, retries = 3) {
+  await getFACookie();
   const headers = {
-    "User-Agent":      randomUA(),
-    "Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-    "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
-    "Accept-Encoding": "gzip, deflate, br",
+    "User-Agent":      randUA(),
+    "Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "es-ES,es;q=0.9",
     "Referer":         "https://www.filmaffinity.com/es/main.html",
-    "Cache-Control":   "no-cache",
-    "Pragma":          "no-cache",
-    "Sec-Fetch-Dest":  "document",
-    "Sec-Fetch-Mode":  "navigate",
-    "Sec-Fetch-Site":  "same-origin",
-    "Upgrade-Insecure-Requests": "1",
-    "DNT": "1",
+    "DNT":             "1",
   };
-  if (sessionCookie) headers["Cookie"] = sessionCookie;
+  if (faCookie) headers["Cookie"] = faCookie;
 
-  const res = await fetch(url, { headers, redirect: "follow", timeout: 25000 });
-
-  // 429 — demasiadas peticiones: esperar y reintentar
-  if (res.status === 429) {
-    if (attempt >= 4) throw new Error("HTTP 429 — FilmAffinity ha bloqueado temporalmente las peticiones. Espera unos minutos e inténtalo de nuevo con el botón Actualizar.");
-    const wait = Math.pow(2, attempt + 2) * 1000 + Math.random() * 2000; // 4s, 8s, 16s, 32s…
-    console.log(`429 en ${url} — esperando ${Math.round(wait/1000)}s (intento ${attempt+1})`);
-    await sleep(wait);
-    return faFetch(url, attempt + 1);
+  for (let i = 0; i < retries; i++) {
+    try {
+      const r = await fetch(url, { headers, redirect: "follow", timeout: 20000 });
+      if (r.status === 429 || r.status === 503) {
+        const wait = Math.pow(2, i + 2) * 1000 + Math.random() * 1000;
+        console.log(`FA ${r.status} → esperando ${Math.round(wait/1000)}s`);
+        await sleep(wait);
+        faCookie = ""; // renovar cookie
+        continue;
+      }
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const html = await r.text();
+      if (html.includes("Just a moment") || html.includes("cf-browser-verification"))
+        throw new Error("CLOUDFLARE_BLOCK");
+      return html;
+    } catch (e) {
+      if (i === retries - 1) throw e;
+      await sleep(3000);
+    }
   }
-
-  // 503 / 403 — también reintentar con pausa larga
-  if (res.status === 503 || res.status === 403) {
-    if (attempt >= 2) throw new Error(`HTTP ${res.status}`);
-    await sleep(8000 + Math.random() * 4000);
-    sessionCookie = ""; // forzar renovación de sesión
-    return faFetch(url, attempt + 1);
-  }
-
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-  const html = await res.text();
-  if (html.includes("Just a moment") || html.includes("cf-browser-verification"))
-    throw new Error("CLOUDFLARE_BLOCK");
-
-  return html;
 }
 
-// ── Parsers ───────────────────────────────────────────────────────────────────
+// Extraer películas de UNA página de lista FA
 function parseListPage(html) {
   const $ = cheerio.load(html);
   const films = [];
 
-  $(".user-list-film-item, .fa-film, .film-card, .user-movie-item").each((_, el) => {
+  // Selector principal de listas de usuario FA
+  $(".user-list-film-item, .fa-film, .user-movie-item, [class*='list-film']").each((_, el) => {
     const $el  = $(el);
     const link = $el.find("a[href*='/film']").first();
     const href = link.attr("href") || "";
     const m    = href.match(/\/film(\d{5,})\./);
     if (!m) return;
+
     const id     = m[1];
-    const title  = $el.find(".mc-title, .title-mc, h2, h3").first().text().trim() ||
-                   link.attr("title") || link.text().trim();
+    const title  = $el.find(".mc-title, .title-mc, [class*='title']").first().text().trim()
+                   || link.attr("title") || "";
     const img    = $el.find("img").first();
     const poster = img.attr("src") || img.attr("data-src") || null;
-    const ratTxt = $el.find(".avgrat-box, .rat-avg, [class*='avgrat']").first().text().trim().replace(",", ".");
+    const ratTxt = $el.find(".avgrat-box, .rat-avg, [class*='avgrat'], [class*='rat']").first()
+                      .text().trim().replace(",", ".");
     const rating = parseFloat(ratTxt) || null;
-    const year   = parseInt($el.find(".mc-year, [class*='year']").first().text().trim()) || null;
-    films.push({ id, title, poster, rating, year });
+    const year   = parseInt($el.find("[class*='year'], .mc-year").first().text().trim()) || null;
+
+    // Tipo: buscar indicador serie en la tarjeta
+    const cardText = $el.text().toLowerCase();
+    const type = cardText.includes("serie") || cardText.includes("tv") ? "series" : "movie";
+
+    films.push({ id, title, poster, rating, year, type,
+      filmaffinity_url: `https://www.filmaffinity.com/es/film${id}.html` });
   });
 
   // Fallback genérico
@@ -134,12 +124,13 @@ function parseListPage(html) {
       const m    = href.match(/\/film(\d{5,})\./);
       if (!m || seen.has(m[1])) return;
       seen.add(m[1]);
-      const img = $(el).find("img").first();
+      const $a   = $(el);
+      const img  = $a.find("img").first();
       films.push({
-        id:     m[1],
-        title:  $(el).attr("title") || $(el).text().trim() || null,
+        id: m[1], title: $a.attr("title") || $a.text().trim() || null,
         poster: img.attr("src") || img.attr("data-src") || null,
-        rating: null, year: null,
+        rating: null, year: null, type: "movie",
+        filmaffinity_url: `https://www.filmaffinity.com/es/film${m[1]}.html`,
       });
     });
   }
@@ -156,35 +147,87 @@ function parseTotalPages(html) {
   return max;
 }
 
-function parseFilmPage(html, filmId) {
-  const $ = cheerio.load(html);
-  const title         = $("h1#main-title span[itemprop='name']").text().trim() ||
-                        $("h1#main-title").text().trim() || $("h1").first().text().trim() || null;
-  const originalTitle = $("dt.main-title span, #movie-original-title").text().trim() || null;
-  const year          = parseInt($("dd[itemprop='datePublished']").text().trim()) ||
-                        parseInt($(".year").first().text().trim()) || null;
-  const durTxt        = $("dd[itemprop='duration'], .duration").first().text().trim();
-  const durM          = durTxt.match(/(\d+)/);
-  const duration      = durM ? parseInt(durM[1]) : null;
-  const ratTxt        = $("#movie-rat-avg, .avgrat-box").first().text().trim().replace(",", ".");
-  const rating        = parseFloat(ratTxt) || null;
-  const poster        = $("#movie-main-image-container img").attr("src") ||
-                        $("img[itemprop='image']").attr("src") ||
-                        $(".movie-card-1 img").attr("src") || null;
-  const synopsis      = $("[class*='synopsis'] dd, #synopsis, .movie-info dd.ltext").first().text().trim().slice(0, 600) ||
-                        $("[itemprop='description']").first().text().trim().slice(0, 600) || null;
-  const pageText      = $(".movie-info").text().toLowerCase();
-  const isSeries      = pageText.includes("serie de tv") || pageText.includes("serie tv") ||
-                        pageText.includes("miniserie") ||
-                        $("dt").filter((_, e) => $(e).text().toLowerCase().includes("serie")).length > 0;
-  return {
-    id: filmId, title: originalTitle || title, year, duration, rating, poster, synopsis,
-    type: isSeries ? "series" : "movie",
-    filmaffinity_url: `https://www.filmaffinity.com/es/film${filmId}.html`,
-  };
+// ─────────────────────────────────────────────────────────────────────────────
+// TMDB — para sinopsis, duración, póster HD, tipo correcto
+// ─────────────────────────────────────────────────────────────────────────────
+async function tmdbEnrich(film) {
+  if (!TMDB_KEY) return {};
+  const cacheKey = "tmdb_" + film.id;
+  if (cache[cacheKey] && Date.now() - cache[cacheKey].ts < TTL_FILM)
+    return cache[cacheKey].data;
+
+  const title = film.title || "";
+  const year  = film.year  || "";
+
+  try {
+    // Buscar en ambos índices (movie y tv) en paralelo
+    const [movieRes, tvRes] = await Promise.all([
+      fetch(`https://api.themoviedb.org/3/search/movie?api_key=${TMDB_KEY}&query=${encodeURIComponent(title)}&year=${year}&language=es-ES`, { timeout: 8000 }),
+      fetch(`https://api.themoviedb.org/3/search/tv?api_key=${TMDB_KEY}&query=${encodeURIComponent(title)}&first_air_date_year=${year}&language=es-ES`, { timeout: 8000 }),
+    ]);
+
+    const [movieData, tvData] = await Promise.all([
+      movieRes.ok ? movieRes.json() : { results: [] },
+      tvRes.ok    ? tvRes.json()    : { results: [] },
+    ]);
+
+    // Elegir el mejor resultado
+    let result = null;
+    let mediaType = film.type || "movie";
+
+    const mResults = (movieData.results || []).slice(0, 3);
+    const tResults = (tvData.results   || []).slice(0, 3);
+
+    // Preferir el tipo que ya tenemos de FA, pero si no hay resultado intentar el otro
+    if (film.type === "series" && tResults.length > 0) {
+      result = tResults[0]; mediaType = "series";
+    } else if (film.type !== "series" && mResults.length > 0) {
+      result = mResults[0]; mediaType = "movie";
+    } else if (tResults.length > 0) {
+      result = tResults[0]; mediaType = "series";
+    } else if (mResults.length > 0) {
+      result = mResults[0]; mediaType = "movie";
+    }
+
+    if (!result) { cache[cacheKey] = { data: {}, ts: Date.now() }; return {}; }
+
+    // Obtener detalles completos (para duración)
+    const detailUrl = mediaType === "series"
+      ? `https://api.themoviedb.org/3/tv/${result.id}?api_key=${TMDB_KEY}&language=es-ES`
+      : `https://api.themoviedb.org/3/movie/${result.id}?api_key=${TMDB_KEY}&language=es-ES`;
+
+    const detailRes  = await fetch(detailUrl, { timeout: 8000 });
+    const detail     = detailRes.ok ? await detailRes.json() : result;
+
+    const synopsis = detail.overview || result.overview || null;
+    const duration = mediaType === "series"
+      ? (detail.episode_run_time?.[0] || null)
+      : (detail.runtime || null);
+    const posterPath = detail.poster_path || result.poster_path || null;
+    const poster     = posterPath ? `https://image.tmdb.org/t/p/w500${posterPath}` : null;
+
+    const enriched = {
+      synopsis,
+      duration,
+      type: mediaType,
+      ...(poster ? { poster } : {}), // solo sobreescribir póster si TMDB tiene uno
+    };
+
+    cache[cacheKey] = { data: enriched, ts: Date.now() };
+    return enriched;
+  } catch (e) {
+    console.warn("TMDB error para", title, e.message);
+    return {};
+  }
 }
 
-// ── API: lista completa ───────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// API endpoints
+// ─────────────────────────────────────────────────────────────────────────────
+
+// GET /api/list?url=BASE64[&force=1]
+// Devuelve la lista completa con datos básicos de FA inmediatamente.
+// El enriquecimiento TMDB se hace luego via /api/enrich/:id
 app.get("/api/list", async (req, res) => {
   const { url, force } = req.query;
   if (!url) return res.status(400).json({ error: "Missing url param" });
@@ -194,86 +237,76 @@ app.get("/api/list", async (req, res) => {
   catch { return res.status(400).json({ error: "Invalid url param" }); }
 
   if (!listUrl.includes("filmaffinity.com"))
-    return res.status(400).json({ error: "Only filmaffinity.com URLs are supported" });
+    return res.status(400).json({ error: "Solo se admiten URLs de filmaffinity.com" });
 
   const cacheKey = "list_" + listUrl;
-
-  if (!force && filmCache[cacheKey] && Date.now() - filmCache[cacheKey].ts < CACHE_TTL_LIST)
-    return res.json({ films: filmCache[cacheKey].data, cached: true, ts: filmCache[cacheKey].ts });
+  if (!force && cache[cacheKey] && Date.now() - cache[cacheKey].ts < TTL_LIST)
+    return res.json({ films: cache[cacheKey].data, cached: true, ts: cache[cacheKey].ts });
 
   try {
-    const firstHtml  = await faFetch(listUrl);
-    let allFilms     = parseListPage(firstHtml);
-    const totalPages = parseTotalPages(firstHtml);
+    // Página 1
+    const html1     = await faFetch(listUrl);
+    let allFilms    = parseListPage(html1);
+    const totalPages = parseTotalPages(html1);
 
+    // Páginas adicionales — pausa 2-4 s entre ellas para no disparar 429
     for (let page = 2; page <= Math.min(totalPages, 30); page++) {
+      await sleep(2000 + Math.random() * 2000);
       try {
-        const sep      = listUrl.includes("?") ? "&" : "?";
-        // Pausa entre páginas: 1.5–3 s para no disparar rate-limit
-        await sleep(1500 + Math.random() * 1500);
-        const pageHtml = await faFetch(`${listUrl}${sep}page=${page}`);
-        const pf       = parseListPage(pageHtml);
+        const sep  = listUrl.includes("?") ? "&" : "?";
+        const html = await faFetch(`${listUrl}${sep}page=${page}`);
+        const pf   = parseListPage(html);
         if (pf.length === 0) break;
-        allFilms = allFilms.concat(pf);
-      } catch (e) {
-        console.warn(`Parando paginación en página ${page}:`, e.message);
-        break;
-      }
+        allFilms   = allFilms.concat(pf);
+      } catch (e) { console.warn("Paginación parada en p." + page, e.message); break; }
     }
 
-    allFilms = allFilms.reverse();
-    filmCache[cacheKey] = { data: allFilms, ts: Date.now() };
-    res.json({ films: allFilms, cached: false, ts: filmCache[cacheKey].ts });
+    allFilms = allFilms.reverse(); // orden inverso como se requiere
+    cache[cacheKey] = { data: allFilms, ts: Date.now() };
+    res.json({ films: allFilms, cached: false, ts: cache[cacheKey].ts });
 
   } catch (err) {
-    console.error("Error en /api/list:", err.message);
+    console.error("/api/list error:", err.message);
     if (err.message === "CLOUDFLARE_BLOCK")
-      return res.status(503).json({ error: "FilmAffinity está protegido por Cloudflare. Inténtalo más tarde." });
+      return res.status(503).json({ error: "FilmAffinity está bloqueando el acceso con Cloudflare." });
     res.status(500).json({ error: err.message });
   }
 });
 
-// ── API: ficha individual ─────────────────────────────────────────────────────
-app.get("/api/film/:id", async (req, res) => {
-  const { id } = req.params;
-  if (!/^\d{5,10}$/.test(id)) return res.status(400).json({ error: "Invalid film id" });
-
-  const cacheKey = "film_" + id;
-  if (filmCache[cacheKey] && Date.now() - filmCache[cacheKey].ts < CACHE_TTL_FILM)
-    return res.json(filmCache[cacheKey].data);
-
-  try {
-    // Pausa corta antes de cada ficha para no saturar
-    await sleep(800 + Math.random() * 700);
-    const html = await faFetch(`https://www.filmaffinity.com/es/film${id}.html`);
-    const data = parseFilmPage(html, id);
-    filmCache[cacheKey] = { data, ts: Date.now() };
-    res.json(data);
-  } catch (err) {
-    console.error(`Error en /api/film/${id}:`, err.message);
-    if (err.message === "CLOUDFLARE_BLOCK")
-      return res.status(503).json({ error: "Cloudflare block" });
-    // Devolver error pero sin romper el flujo del cliente
-    res.status(500).json({ error: err.message });
-  }
+// GET /api/enrich/:faId?title=X&year=Y&type=movie|series
+// Enriquece UNA película desde TMDB (sin tocar FA)
+app.get("/api/enrich/:faId", async (req, res) => {
+  const { faId } = req.params;
+  const film = {
+    id:    faId,
+    title: req.query.title || "",
+    year:  parseInt(req.query.year)  || null,
+    type:  req.query.type || "movie",
+  };
+  const data = await tmdbEnrich(film);
+  res.json(data);
 });
 
-// ── API: marcas compartidas ───────────────────────────────────────────────────
-app.get("/api/marks/:listKey", (req, res) => {
-  res.json({ marks: deletedMarks[req.params.listKey] || [] });
+// GET /api/marks/:key  /  POST /api/marks/:key
+app.get("/api/marks/:key", (req, res) => {
+  res.json({ marks: deletedMarks[req.params.key] || [] });
 });
-app.post("/api/marks/:listKey", (req, res) => {
+app.post("/api/marks/:key", (req, res) => {
   const { marks } = req.body;
   if (!Array.isArray(marks)) return res.status(400).json({ error: "marks must be array" });
-  deletedMarks[req.params.listKey] = marks;
+  deletedMarks[req.params.key] = marks;
   res.json({ ok: true });
 });
 
-// ── Frontend ──────────────────────────────────────────────────────────────────
+// GET /api/config — informa al frontend si TMDB está disponible
+app.get("/api/config", (req, res) => {
+  res.json({ tmdb: !!TMDB_KEY });
+});
+
+// Fallback → index.html
 app.get("*", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
-
-app.listen(PORT, "0.0.0.0", () => console.log(`FA Viewer corriendo en puerto ${PORT}`));
+app.listen(PORT, "0.0.0.0", () => console.log(`FA Viewer en puerto ${PORT} | TMDB: ${TMDB_KEY ? "✓" : "no configurado"}`));
