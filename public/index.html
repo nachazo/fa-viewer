@@ -175,6 +175,14 @@
       </select>
     </div>
 
+    <!-- filtro por género -->
+    <div class="rating-filter">
+      <label for="genre-filter">🎭</label>
+      <select id="genre-filter" onchange="onGenreFilter(this.value)">
+        <option value="">Género</option>
+      </select>
+    </div>
+
     <div class="spacer"></div>
     <div class="count" id="count-lbl"></div>
 
@@ -204,6 +212,7 @@
         <div class="mbadges" id="mbadges"></div>
         <h2 class="mtitle" id="mtitle"></h2>
         <div class="mmeta" id="mmeta"></div>
+        <div id="mgenres" style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:12px"></div>
         <p id="msynopsis" class="msynopsis"></p>
         <div class="mactions">
           <a class="falink" id="falink" href="#" target="_blank" rel="noopener">Ver en FilmAffinity ↗</a>
@@ -231,6 +240,7 @@ let deletedIds = new Set();
 let filter     = "all";
 let searchQ    = "";
 let minRating  = 0;
+let genreFilter = "";
 let hideDel    = false;
 let onlyDel    = false;
 let dark       = true;
@@ -312,6 +322,7 @@ function visible() {
     if (filter === "movies" && f.type === "series") return false;
     if (filter === "series" && f.type !== "series") return false;
     if (minRating > 0 && (f.rating == null || f.rating < minRating)) return false;
+    if (genreFilter && !(f.genres || []).includes(genreFilter)) return false;
     if (q && !(f.title||"").toLowerCase().includes(q)) return false;
     return true;
   });
@@ -478,6 +489,7 @@ async function enrichAll() {
   }
 
   // Re-renderizar el grid UNA sola vez al terminar
+  populateGenres();
   renderGrid();
   lsSave();
   setStatus(null);
@@ -565,6 +577,10 @@ function fillModal(film) {
   if (film.year)     meta.push("📅 " + film.year);
   if (film.duration) meta.push("⏱ " + (film.type==="series" ? film.duration+" min/ep" : film.duration+" min"));
   document.getElementById("mmeta").innerHTML = meta.join(" &nbsp;·&nbsp; ");
+  const gEl = document.getElementById("mgenres");
+  gEl.innerHTML = (film.genres || []).map(g =>
+    `<span style="font-size:10px;font-weight:700;padding:3px 9px;border-radius:20px;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);cursor:pointer" onclick="closeModal();onGenreFilter('${esc(g)}');document.getElementById('genre-filter').value='${esc(g)}';">${esc(g)}</span>`
+  ).join("");
   const se = document.getElementById("msynopsis");
   se.className = film.synopsis ? "msynopsis" : "msynnone";
   se.textContent = film.synopsis || (film._enriched ? "Sin sinopsis disponible" : "Cargando sinopsis…");
@@ -587,6 +603,17 @@ function setFilter(f) {
 }
 function onSearch(v)      { searchQ  = v;              renderGrid(); }
 function onRatingFilter(v){ minRating = parseFloat(v)||0; renderGrid(); }
+function onGenreFilter(v) { genreFilter = v;            renderGrid(); }
+
+function populateGenres() {
+  const all = new Set();
+  for (const f of allFilms) for (const g of (f.genres || [])) all.add(g);
+  const sorted = [...all].sort((a,b) => a.localeCompare(b, "es"));
+  const sel = document.getElementById("genre-filter");
+  const cur = sel.value;
+  sel.innerHTML = `<option value="">Género</option>` +
+    sorted.map(g => `<option value="${esc(g)}"${g===cur?" selected":""}>${esc(g)}</option>`).join("");
+}
 function toggleHideDel() {
   if (onlyDel) { onlyDel = false; document.getElementById("only-del-btn").classList.remove("on"); }
   hideDel = !hideDel;
