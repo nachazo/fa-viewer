@@ -116,16 +116,31 @@ function parseListPage(html) {
     if (!m) return;
 
     const id = m[1];
-    if (seenIds.has(id)) return; // evitar duplicados por selectores solapados
+    if (seenIds.has(id)) return;
     seenIds.add(id);
 
-    // Título: múltiples selectores por orden de fiabilidad
-    const title =
-      $el.find(".mc-title a, .mc-title, .title-mc, .movie-title, [class*='title'] a").first().text().trim() ||
-      link.attr("title") ||
-      link.text().trim() ||
-      $el.find("h2, h3, h4").first().text().trim() ||
-      "";
+    // Título: usar el selector más específico disponible.
+    // IMPORTANTE: NO usar link.text() como fallback — en FA el <a> que envuelve
+    // la card suele contener el título repetido en el texto interno.
+    const titleEl =
+      $el.find(".mc-title a").first()    ||
+      $el.find(".mc-title").first()      ||
+      $el.find(".title-mc").first()      ||
+      $el.find(".movie-title").first();
+
+    let title = titleEl.length ? titleEl.text().trim() : "";
+
+    // Si no encontramos nada con selectores específicos, usar el atributo title del enlace
+    // (el atributo title="" es fiable, el .text() del enlace puede tener contenido anidado)
+    if (!title) title = link.attr("title") || "";
+
+    // Limpieza: si el título aparece duplicado (ej "Blue Moon Blue Moon"), corregirlo
+    if (title) {
+      const half = Math.floor(title.length / 2);
+      const firstHalf = title.slice(0, half).trim();
+      const secondHalf = title.slice(half).trim();
+      if (firstHalf && firstHalf === secondHalf) title = firstHalf;
+    }
 
     // Póster
     const img = $el.find("img").first();
@@ -199,24 +214,56 @@ function parseTotalPages(html) {
   return max;
 }
 
+// ── TMDB helpers ──────────────────────────────────────────────────────────────
+function normalizeTitle(s) {
+  return (s || "").toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")  // quitar acentos
+    .replace(/[^\w\s]/g, "").replace(/\s+/g, " ").trim();
+}
+
+// Puntuación para elegir el mejor resultado TMDB dado un título y año de FA
+function scoreMatch(result, faTitle, faYear) {
+  const tmdbT = normalizeTitle(result.title || result.name || "");
+  const faT   = normalizeTitle(faTitle);
+  let score   = 0;
+
+  // Coincidencia de título
+  if (tmdbT === faT)                         score += 100; // exacta → máxima prioridad
+  else if (tmdbT.startsWith(faT + " ") ||
+           tmdbT.endsWith(" " + faT))        score +=  30; // FA es prefijo/sufijo
+  else if (tmdbT.includes(faT))             score +=  10; // FA está contenido
+  else                                       score -=  60; // no coincide → descartar
+
+  // Coincidencia de año (±1 por diferencias de fecha de estreno entre países)
+  if (faYear) {
+    const tmdbYear = parseInt((result.release_date || result.first_air_date || "").slice(0, 4));
+    if (tmdbYear === faYear)                  score += 50;
+    else if (Math.abs(tmdbYear - faYear) <=1) score += 20;
+    else if (tmdbYear)                        score -= 40; // año muy diferente → penalizar
+  }
+
+  return score;
+}
+
 // ── TMDB enrich ───────────────────────────────────────────────────────────────
 async function tmdbEnrich(film) {
   if (!TMDB_KEY) return { _tmdb_error: "no_key" };
-  const key = "tmdb_" + film.id;
-  if (tmdbCache[key] && Date.now() - tmdbCache[key].ts < 7 * 24 * 60 * 60 * 1000)
-    return tmdbCache[key].data;
+  const cacheKey = "tmdb_" + film.id;
+  if (tmdbCache[cacheKey] && Date.now() - tmdbCache[cacheKey].ts < 7 * 24 * 60 * 60 * 1000)
+    return tmdbCache[cacheKey].data;
 
   try {
     const q = encodeURIComponent(film.title || "");
-    const y = film.year || "";
+
+    // Buscar SIN filtro de año para tener todos los candidatos disponibles,
+    // luego elegir el mejor por puntuación (título exacto + año)
     const [mr, tr] = await Promise.all([
-      fetch(`https://api.themoviedb.org/3/search/movie?api_key=${TMDB_KEY}&query=${q}&year=${y}&language=es-ES`, { timeout: 8000 }),
-      fetch(`https://api.themoviedb.org/3/search/tv?api_key=${TMDB_KEY}&query=${q}&first_air_date_year=${y}&language=es-ES`, { timeout: 8000 }),
+      fetch(`https://api.themoviedb.org/3/search/movie?api_key=${TMDB_KEY}&query=${q}&language=es-ES`, { timeout: 8000 }),
+      fetch(`https://api.themoviedb.org/3/search/tv?api_key=${TMDB_KEY}&query=${q}&language=es-ES`,    { timeout: 8000 }),
     ]);
 
-    // Detectar API key inválida
     if (mr.status === 401 || tr.status === 401) {
-      log("[TMDB] API key inválida (401)");
+      log("[TMDB] API key inválida");
       return { _tmdb_error: "invalid_key" };
     }
 
@@ -225,30 +272,48 @@ async function tmdbEnrich(film) {
       tr.ok ? tr.json() : { results: [] },
     ]);
 
-    const mR = md.results || [], tR = td.results || [];
-    let result = null, mediaType = film.type || "movie";
+    // Puntuar candidatos (máx 5 de cada tipo)
+    const candidates = [];
+    for (const r of (md.results || []).slice(0, 5))
+      candidates.push({ r, mediaType: "movie",  score: scoreMatch(r, film.title, film.year) });
+    for (const r of (td.results || []).slice(0, 5))
+      candidates.push({ r, mediaType: "series", score: scoreMatch(r, film.title, film.year) });
 
-    if (film.type === "series" && tR.length > 0)       { result = tR[0]; mediaType = "series"; }
-    else if (film.type !== "series" && mR.length > 0)  { result = mR[0]; mediaType = "movie";  }
-    else if (tR.length > 0)                            { result = tR[0]; mediaType = "series"; }
-    else if (mR.length > 0)                            { result = mR[0]; mediaType = "movie";  }
+    // Bonus leve si el tipo coincide con lo que vino de FA
+    for (const c of candidates)
+      if (c.mediaType === (film.type === "series" ? "series" : "movie")) c.score += 10;
 
-    if (!result) { tmdbCache[key] = { data: {}, ts: Date.now() }; return {}; }
+    candidates.sort((a, b) => b.score - a.score);
+    const best = candidates[0];
 
+    log(`[TMDB] "${film.title}" (${film.year}) → "${best?.r?.title || best?.r?.name || "-"}" score=${best?.score ?? "n/a"}`);
+
+    // Rechazar si no hay coincidencia mínima fiable
+    if (!best || best.score < 40) {
+      log(`[TMDB] Sin coincidencia válida para "${film.title}" (${film.year})`);
+      tmdbCache[cacheKey] = { data: {}, ts: Date.now() };
+      return {};
+    }
+
+    const { r: result, mediaType } = best;
+
+    // Obtener detalles completos (géneros, duración, etc.)
     const detailUrl = mediaType === "series"
       ? `https://api.themoviedb.org/3/tv/${result.id}?api_key=${TMDB_KEY}&language=es-ES`
       : `https://api.themoviedb.org/3/movie/${result.id}?api_key=${TMDB_KEY}&language=es-ES`;
 
-    const dr = await fetch(detailUrl, { timeout: 8000 });
+    const dr     = await fetch(detailUrl, { timeout: 8000 });
     const detail = dr.ok ? await dr.json() : result;
 
     const synopsis   = detail.overview || result.overview || null;
     const duration   = mediaType === "series" ? (detail.episode_run_time?.[0] || null) : (detail.runtime || null);
     const posterPath = detail.poster_path || result.poster_path || null;
     const poster     = posterPath ? `https://image.tmdb.org/t/p/w500${posterPath}` : null;
+    // Géneros como array de strings en español
+    const genres     = (detail.genres || []).map(g => g.name).filter(Boolean);
 
-    const data = { synopsis, duration, type: mediaType, ...(poster ? { poster } : {}) };
-    tmdbCache[key] = { data, ts: Date.now() };
+    const data = { synopsis, duration, type: mediaType, genres, ...(poster ? { poster } : {}) };
+    tmdbCache[cacheKey] = { data, ts: Date.now() };
     return data;
   } catch (e) {
     log("[TMDB] error:", film.title, e.message);
