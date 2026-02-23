@@ -465,20 +465,20 @@ async function enrichAll() {
           setWarn("La API key de TMDB es inválida. Ve a Render → Environment y comprueba la variable TMDB_KEY.");
           tmdbKeyBad = true; break;
         }
-        if (extra._tmdb_error === "no_key") { break; } // Sin clave, parar silenciosamente
-        if (Object.keys(extra).length > 0) {
-          allFilms[i] = { ...f, ...extra, _enriched: true };
-          updateCard(allFilms[i]);
-          if (modalId === f.id) fillModal(allFilms[i]);
-        } else {
-          allFilms[i] = { ...f, _enriched: true };
-        }
+        if (extra._tmdb_error === "no_key") { break; }
+        // Solo actualizar datos en memoria, sin tocar el DOM todavía
+        allFilms[i] = Object.keys(extra).length > 0
+          ? { ...f, ...extra, _enriched: true }
+          : { ...f, _enriched: true };
+        // Actualizar modal si está abierto con esta peli
+        if (modalId === f.id) fillModal(allFilms[i]);
       }
     } catch {}
     await sleep(120);
   }
 
-  // Guardar versión enriquecida en localStorage
+  // Re-renderizar el grid UNA sola vez al terminar
+  renderGrid();
   lsSave();
   setStatus(null);
   updateCount();
@@ -517,13 +517,6 @@ function cardHTML(f, i) {
       <div class="cmeta">${meta}</div>
     </div>
   </div>`;
-}
-
-function updateCard(film) {
-  const el = document.getElementById("card-" + film.id);
-  if (!el) return;
-  const vis = visible(), idx = vis.findIndex(f => f.id === film.id);
-  if (idx >= 0) el.outerHTML = cardHTML(film, idx);
 }
 
 // ── Delete ─────────────────────────────────────────────────────────────────
