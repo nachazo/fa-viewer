@@ -1,5 +1,5 @@
 {
-  "name": "fa-viewer-backend",
+  "name": "fa-viewer",
   "version": "1.0.0",
   "description": "FilmAffinity list viewer backend",
   "main": "server.js",
