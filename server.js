@@ -99,6 +99,8 @@ function parseListPage(html) {
     "[data-movie-id]",
   ];
 
+  const seenIds = new Set();
+
   $(containers.join(", ")).each((_, el) => {
     const $el = $(el);
 
@@ -114,6 +116,8 @@ function parseListPage(html) {
     if (!m) return;
 
     const id = m[1];
+    if (seenIds.has(id)) return; // evitar duplicados por selectores solapados
+    seenIds.add(id);
 
     // Título: múltiples selectores por orden de fiabilidad
     const title =
@@ -174,7 +178,14 @@ function parseListPage(html) {
     log("[PARSE] Fallback:", films.length, "films");
   }
 
-  return films;
+  // Deduplicar por ID como última salvaguarda
+  const unique = [];
+  const finalSeen = new Set();
+  for (const f of films) {
+    if (!finalSeen.has(f.id)) { finalSeen.add(f.id); unique.push(f); }
+  }
+  log("[PARSE] Final únicos:", unique.length);
+  return unique;
 }
 
 function parseTotalPages(html) {
@@ -408,7 +419,12 @@ async function runRefreshJob(key, listUrl) {
     }
 
     allFilms = allFilms.reverse();
-    log("[JOB] Total:", allFilms.length, "films");
+
+    // Deduplicar por ID
+    const seen = new Set();
+    allFilms = allFilms.filter(f => { if (seen.has(f.id)) return false; seen.add(f.id); return true; });
+
+    log("[JOB] Total tras dedup:", allFilms.length, "films");
 
     listCache[key] = { films: allFilms, ts: Date.now(), listUrl };
     jobs[key].status = "done";
