@@ -373,7 +373,13 @@ async function tmdbEnrich(film) {
 // RUTAS API
 // ─────────────────────────────────────────────────────────────────────────────
 
-app.get("/api/config", (req, res) => {
+app.get("/api/debug-url", (req, res) => {
+  const { url } = req.query;
+  const raw = url || "";
+  const decoded = decodeListUrl(raw);
+  const key = decoded ? makeKey(decoded) : null;
+  res.json({ raw, decoded, key });
+});
   res.json({ tmdb: !!TMDB_KEY, db: !!db });
 });
 
