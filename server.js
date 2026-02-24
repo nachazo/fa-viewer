@@ -34,6 +34,7 @@ async function connectDB() {
 
 // Fallback en memoria si no hay MongoDB
 const mem = { lists: {}, marks: {}, tmdb: {} };
+const tmdbCache = {}; // caché en memoria para evitar consultas repetidas a DB
 
 async function dbGetList(key) {
   if (!db) return mem.lists[key] || null;
@@ -252,9 +253,11 @@ function parseTotalPages(html) {
   if (typeof html !== "string") return 1;
   const $ = cheerio.load(html);
   let max = 1;
-  $(".pager a, .pagination a, [class*='pager'] a, [class*='page'] a").each((_, el) => {
+  // Selectores específicos de paginación — evitar [class*='page'] que captura años/IDs
+  $(".pager a, .pagination a, [class*='pager'] a, nav a").each((_, el) => {
     const n = parseInt($(el).text().trim());
-    if (!isNaN(n) && n > max) max = n;
+    // Solo números razonables de página (1-99)
+    if (!isNaN(n) && n > max && n <= 99) max = n;
   });
   return max;
 }
