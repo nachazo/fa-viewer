@@ -381,9 +381,8 @@ app.get("/api/config", (req, res) => {
 app.get("/api/list", async (req, res) => {
   const { url } = req.query;
   if (!url) return res.status(400).json({ error: "Falta url" });
-  let listUrl;
-  try { listUrl = /^https?:\/\//.test(url) ? url : atob(url); } catch { return res.status(400).json({ error: "URL inválida" }); }
-  if (!listUrl.includes("filmaffinity.com")) return res.status(400).json({ error: "Solo filmaffinity.com" });
+  const listUrl = decodeListUrl(url);
+  if (!listUrl) return res.status(400).json({ error: "URL inválida" });
 
   const key = makeKey(listUrl);
   const hit = await dbGetList(key);
@@ -399,8 +398,8 @@ app.get("/api/list", async (req, res) => {
 app.post("/api/restore", async (req, res) => {
   const { url, films, ts } = req.body;
   if (!url || !Array.isArray(films)) return res.status(400).json({ error: "Datos inválidos" });
-  let listUrl;
-  try { listUrl = /^https?:\/\//.test(url) ? url : atob(url); } catch { return res.status(400).json({ error: "URL inválida" }); }
+  const listUrl = decodeListUrl(url);
+  if (!listUrl) return res.status(400).json({ error: "URL inválida" });
   const key = makeKey(listUrl);
   const existing = await dbGetList(key);
   if (!existing) {
@@ -414,9 +413,8 @@ app.post("/api/restore", async (req, res) => {
 app.post("/api/refresh", (req, res) => {
   const { url } = req.query;
   if (!url) return res.status(400).json({ error: "Falta url" });
-  let listUrl;
-  try { listUrl = /^https?:\/\//.test(url) ? url : atob(url); } catch { return res.status(400).json({ error: "URL inválida" }); }
-  if (!listUrl.includes("filmaffinity.com")) return res.status(400).json({ error: "Solo filmaffinity.com" });
+  const listUrl = decodeListUrl(url);
+  if (!listUrl) return res.status(400).json({ error: "URL inválida" });
 
   const key = makeKey(listUrl);
   if (jobs[key] && jobs[key].status === "running")
@@ -431,8 +429,8 @@ app.post("/api/refresh", (req, res) => {
 app.get("/api/refresh-status", async (req, res) => {
   const { url } = req.query;
   if (!url) return res.status(400).json({ error: "Falta url" });
-  let listUrl;
-  try { listUrl = /^https?:\/\//.test(url) ? url : atob(url); } catch { return res.status(400).json({ error: "URL inválida" }); }
+  const listUrl = decodeListUrl(url);
+  if (!listUrl) return res.status(400).json({ error: "URL inválida" });
   const key = makeKey(listUrl);
   const job = jobs[key];
 
@@ -479,8 +477,8 @@ app.post("/api/marks/:key", async (req, res) => {
 app.get("/api/dump", async (req, res) => {
   const { url } = req.query;
   if (!url) return res.status(400).send("Falta url");
-  let listUrl;
-  try { listUrl = /^https?:\/\//.test(url) ? url : atob(url); } catch { return res.status(400).send("URL inválida"); }
+  const listUrl = decodeListUrl(url);
+  if (!listUrl) return res.status(400).send("URL inválida");
   try {
     const html = await faFetch(listUrl);
     const $    = cheerio.load(html);
@@ -564,6 +562,16 @@ async function runRefreshJob(key, listUrl) {
 
 function makeKey(url) {
   return Buffer.from(url).toString("base64").replace(/[^a-z0-9]/gi, "").slice(0, 32);
+}
+function fromB64(s) {
+  // Usar Buffer (Node.js) en lugar de atob — más robusto con caracteres especiales
+  return Buffer.from(s, "base64").toString("utf8");
+}
+function decodeListUrl(raw) {
+  if (!raw) return null;
+  const url = /^https?:\/\//.test(raw) ? raw : fromB64(raw);
+  if (!url.includes("filmaffinity.com")) return null;
+  return url;
 }
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
