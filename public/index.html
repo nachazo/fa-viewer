@@ -246,7 +246,15 @@ let modalId    = null;
 
 // ── URL ────────────────────────────────────────────────────────────────────
 function getListUrl() {
-  try { const b = new URLSearchParams(location.search).get("url"); if (b) return atob(b); } catch {}
+  try {
+    const raw = new URLSearchParams(location.search).get("url");
+    if (!raw) return DEFAULT_URL;
+    // Decodificar: URLSearchParams ya decodifica %2F etc., pero hay que restaurar
+    // los caracteres base64 que pudieran haberse alterado
+    const b64 = raw.replace(/ /g, "+"); // URLSearchParams convierte + en espacio
+    const decoded = atob(b64);
+    if (decoded.includes("filmaffinity.com")) return decoded;
+  } catch(e) { console.error("getListUrl error:", e); }
   return DEFAULT_URL;
 }
 function listKey()    { return "fa_" + btoa(getListUrl()).replace(/[^a-z0-9]/gi,"").slice(0,20); }
