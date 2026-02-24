@@ -245,9 +245,7 @@ let hideDel    = false;
 let onlyDel    = false;
 let dark       = true;
 let refreshing = false;
-let enriching  = false;
 let modalId    = null;
-let tmdbEnabled = false;
 
 // ── URL ────────────────────────────────────────────────────────────────────
 function getListUrl() {
@@ -332,54 +330,28 @@ function visible() {
 async function init() {
   deletedIds = lsLoadMarks();
 
-  // 1. Comprobar TMDB
-  try { const r = await fetch(`${API}/api/config`); const d = await r.json(); tmdbEnabled = !!d.tmdb; } catch {}
-
-  // 2. Intentar cargar desde memoria del servidor
   setStatus("Cargando…");
-  let serverHit = false;
   try {
     const r = await fetch(`${API}/api/list?${urlParam()}`);
     const d = await r.json();
     if (!d.empty && d.films && d.films.length > 0) {
       allFilms = d.films;
       showLastUpdate(d.ts, d.cached);
-      serverHit = true;
+      setStatus(null);
+      populateGenres();
+      renderGrid();
+      updateCount();
+      return;
     }
-  } catch {}
-
-  // 3. Si el servidor no tiene datos, intentar restaurar desde localStorage
-  if (!serverHit) {
-    const lsFilms = lsLoadFilms();
-    const lsTs    = lsLoadTs();
-    if (lsFilms && lsFilms.length > 0) {
-      dbg("Restaurando " + lsFilms.length + " films desde localStorage");
-      allFilms = lsFilms;
-      showLastUpdate(lsTs, true);
-      // Enviar al servidor para que también lo tenga en memoria
-      try {
-        await fetch(`${API}/api/restore`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url: getListUrl(), films: lsFilms, ts: lsTs }),
-        });
-      } catch {}
-      // Sincronizar marcas
-      await syncMarks();
-      serverHit = true;
-    }
-  }
-
-  setStatus(null);
-
-  if (!serverHit) {
-    showEmptyState();
+  } catch(e) {
+    setStatus(null);
+    setError("No se pudo conectar con el servidor: " + e.message);
     return;
   }
 
-  renderGrid();
-  updateCount();
-  if (tmdbEnabled) enrichAll();
+  // Sin datos en servidor — mostrar pantalla de bienvenida
+  setStatus(null);
+  showEmptyState();
 }
 
 // ── Pantalla vacía ─────────────────────────────────────────────────────────
@@ -435,16 +407,12 @@ async function pollRefresh() {
       if (d.status === "done") {
         allFilms = d.films || [];
         showLastUpdate(d.ts, false);
-
-        // Guardar en localStorage para persistencia
         lsSave();
-        await syncMarks();
-
         setStatus(null);
         clearDbg();
+        populateGenres();
         renderGrid();
         updateCount();
-        if (tmdbEnabled) enrichAll();
 
         refreshing = false; setBusy(false);
         if (cta) { cta.disabled = false; const ci = document.getElementById("cta-ic"); if(ci) ci.className = ""; }
@@ -453,48 +421,6 @@ async function pollRefresh() {
     } catch(e) { if (e.message.includes("Error")) throw e; }
   }
   throw new Error("Timeout: la descarga tardó demasiado.");
-}
-
-// ── TMDB enrich ────────────────────────────────────────────────────────────
-async function enrichAll() {
-  if (enriching) return;
-  enriching = true;
-  let tmdbKeyBad = false;
-
-  const total = allFilms.length;
-  for (let i = 0; i < allFilms.length; i++) {
-    const f = allFilms[i];
-    if (f._enriched) continue;
-    if (tmdbKeyBad) break;
-    setStatus(`Cargando sinopsis… (${i+1}/${total})`, i+1, total);
-    try {
-      const p = new URLSearchParams({ title: f.title||"", year: f.year||"", type: f.type||"movie" });
-      const r = await fetch(`${API}/api/enrich/${f.id}?${p}`);
-      if (r.ok) {
-        const extra = await r.json();
-        if (extra._tmdb_error === "invalid_key") {
-          setWarn("La API key de TMDB es inválida. Ve a Render → Environment y comprueba la variable TMDB_KEY.");
-          tmdbKeyBad = true; break;
-        }
-        if (extra._tmdb_error === "no_key") { break; }
-        // Solo actualizar datos en memoria, sin tocar el DOM todavía
-        allFilms[i] = Object.keys(extra).length > 0
-          ? { ...f, ...extra, _enriched: true }
-          : { ...f, _enriched: true };
-        // Actualizar modal si está abierto con esta peli
-        if (modalId === f.id) fillModal(allFilms[i]);
-      }
-    } catch {}
-    await sleep(120);
-  }
-
-  // Re-renderizar el grid UNA sola vez al terminar
-  populateGenres();
-  renderGrid();
-  lsSave();
-  setStatus(null);
-  updateCount();
-  enriching = false;
 }
 
 // ── Grid ───────────────────────────────────────────────────────────────────
