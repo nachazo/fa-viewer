@@ -569,7 +569,8 @@ async function runRefreshJob(key, listUrl) {
 }
 
 function makeKey(url) {
-  return Buffer.from(url).toString("base64").replace(/[^a-z0-9]/gi, "").slice(0, 32);
+  const b = Buffer.from(url).toString("base64").replace(/[^a-z0-9]/gi, "");
+  return "fa_" + b.slice(-20); // usar el FINAL donde las URLs difieren
 }
 function fromB64(s) {
   // Usar Buffer (Node.js) en lugar de atob — más robusto con caracteres especiales
