@@ -501,10 +501,11 @@ app.get("*", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
-// ── Job de refresco ───────────────────────────────────────────────────────────
+// ── Job de refresco (FA scraping + TMDB enrich todo en servidor) ──────────────
 async function runRefreshJob(key, listUrl) {
   log("[JOB] Iniciando para", listUrl);
   try {
+    // 1. Scraping FA
     jobs[key].progress = "Descargando página 1…";
     const html1      = await faFetch(listUrl);
     let allFilms     = parseListPage(html1);
@@ -526,9 +527,30 @@ async function runRefreshJob(key, listUrl) {
     allFilms = allFilms.reverse();
     const seen = new Set();
     allFilms = allFilms.filter(f => { if (seen.has(f.id)) return false; seen.add(f.id); return true; });
-    log("[JOB] Total:", allFilms.length, "films");
+    log("[JOB] FA total:", allFilms.length, "films");
 
+    // 2. Guardar lista base inmediatamente (por si el enrich falla a medias)
     await dbSaveList(key, allFilms, listUrl);
+
+    // 3. Enriquecimiento TMDB en el servidor (no en el cliente)
+    if (TMDB_KEY) {
+      log("[JOB] Iniciando enrich TMDB para", allFilms.length, "films");
+      for (let i = 0; i < allFilms.length; i++) {
+        jobs[key].progress = `Enriqueciendo con TMDB… (${i + 1}/${allFilms.length})`;
+        const extra = await tmdbEnrich(allFilms[i]);
+        if (extra && !extra._tmdb_error && Object.keys(extra).length > 0) {
+          allFilms[i] = { ...allFilms[i], ...extra, _enriched: true };
+        } else {
+          allFilms[i] = { ...allFilms[i], _enriched: true };
+        }
+        // Pausa pequeña para no saturar TMDB API (40 req/s límite)
+        await sleep(80);
+      }
+      // Guardar versión enriquecida final
+      await dbSaveList(key, allFilms, listUrl);
+      log("[JOB] Enrich completo");
+    }
+
     jobs[key].status = "done";
   } catch (err) {
     log("[JOB] Error:", err.message);
