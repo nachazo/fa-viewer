@@ -4,21 +4,66 @@ const cheerio   = require("cheerio");
 const fetch     = require("node-fetch");
 const rateLimit = require("express-rate-limit");
 const path      = require("path");
+const { MongoClient } = require("mongodb");
 
 const app  = express();
 const PORT = process.env.PORT || 3001;
-const TMDB_KEY = process.env.TMDB_KEY || "";
+const TMDB_KEY    = process.env.TMDB_KEY    || "";
+const MONGODB_URI = process.env.MONGODB_URI || "";
 
-// ── NOTA SOBRE PERSISTENCIA ───────────────────────────────────────────────────
-// Render plan gratuito: el disco es EFÍMERO (se borra en cada deploy/reinicio).
-// Por eso la caché vive solo en memoria del servidor. La persistencia real
-// se delega al localStorage del navegador del cliente (ver index.html).
-// Las marcas "para borrar" también se guardan en memoria + cliente.
+// ── MongoDB Atlas ─────────────────────────────────────────────────────────────
+// Si MONGODB_URI está configurada, todo persiste en la nube (compartido entre usuarios).
+// Si no, usa memoria (datos se pierden al reiniciar).
+let db = null;
 
-const listCache    = {};  // key → { films, ts, listUrl }
-const deletedMarks = {};  // key → string[]
-const jobs         = {};  // key → { status, progress, error }
-const tmdbCache    = {};  // faId → { data, ts }
+async function connectDB() {
+  if (!MONGODB_URI) { log("[DB] Sin MONGODB_URI — usando memoria"); return; }
+  try {
+    const client = new MongoClient(MONGODB_URI, { serverSelectionTimeoutMS: 8000 });
+    await client.connect();
+    db = client.db("fa_viewer");
+    log("[DB] Conectado a MongoDB Atlas");
+    await db.collection("lists").createIndex({ key: 1 }, { unique: true });
+    await db.collection("marks").createIndex({ key: 1 }, { unique: true });
+    await db.collection("tmdb").createIndex({ faId: 1 }, { unique: true });
+  } catch(e) {
+    log("[DB] Error:", e.message, "— fallback a memoria");
+    db = null;
+  }
+}
+
+// Fallback en memoria si no hay MongoDB
+const mem = { lists: {}, marks: {}, tmdb: {} };
+
+async function dbGetList(key) {
+  if (!db) return mem.lists[key] || null;
+  return await db.collection("lists").findOne({ key }, { projection: { _id: 0 } });
+}
+async function dbSaveList(key, films, listUrl) {
+  const doc = { key, films, listUrl, ts: Date.now() };
+  if (!db) { mem.lists[key] = doc; return; }
+  await db.collection("lists").updateOne({ key }, { $set: doc }, { upsert: true });
+}
+async function dbGetMarks(key) {
+  if (!db) return mem.marks[key] || [];
+  const doc = await db.collection("marks").findOne({ key });
+  return doc?.marks || [];
+}
+async function dbSaveMarks(key, marks) {
+  if (!db) { mem.marks[key] = marks; return; }
+  await db.collection("marks").updateOne({ key }, { $set: { key, marks, ts: Date.now() } }, { upsert: true });
+}
+async function dbGetTmdb(faId) {
+  if (!db) return mem.tmdb[faId] || null;
+  return await db.collection("tmdb").findOne({ faId }, { projection: { _id: 0 } });
+}
+async function dbSaveTmdb(faId, data) {
+  if (!db) { mem.tmdb[faId] = { faId, data, ts: Date.now() }; return; }
+  await db.collection("tmdb").updateOne({ faId }, { $set: { faId, data, ts: Date.now() } }, { upsert: true });
+}
+
+// Jobs de descarga (solo en memoria — no necesitan persistir)
+const jobs = {};
 
 // ── Middleware ────────────────────────────────────────────────────────────────
 app.use(cors());
@@ -292,12 +337,12 @@ async function tmdbEnrich(film) {
     if (!best || best.score < 40) {
       log(`[TMDB] Sin coincidencia válida para "${film.title}" (${film.year})`);
       tmdbCache[cacheKey] = { data: {}, ts: Date.now() };
+      await dbSaveTmdb(film.id, {});
       return {};
     }
 
     const { r: result, mediaType } = best;
 
-    // Obtener detalles completos (géneros, duración, etc.)
     const detailUrl = mediaType === "series"
       ? `https://api.themoviedb.org/3/tv/${result.id}?api_key=${TMDB_KEY}&language=es-ES`
       : `https://api.themoviedb.org/3/movie/${result.id}?api_key=${TMDB_KEY}&language=es-ES`;
@@ -309,11 +354,11 @@ async function tmdbEnrich(film) {
     const duration   = mediaType === "series" ? (detail.episode_run_time?.[0] || null) : (detail.runtime || null);
     const posterPath = detail.poster_path || result.poster_path || null;
     const poster     = posterPath ? `https://image.tmdb.org/t/p/w500${posterPath}` : null;
-    // Géneros como array de strings en español
     const genres     = (detail.genres || []).map(g => g.name).filter(Boolean);
 
     const data = { synopsis, duration, type: mediaType, genres, ...(poster ? { poster } : {}) };
     tmdbCache[cacheKey] = { data, ts: Date.now() };
+    await dbSaveTmdb(film.id, data);
     return data;
   } catch (e) {
     log("[TMDB] error:", film.title, e.message);
@@ -325,14 +370,12 @@ async function tmdbEnrich(film) {
 // RUTAS API
 // ─────────────────────────────────────────────────────────────────────────────
 
-// GET /api/config — estado del servidor (TMDB disponible, etc.)
 app.get("/api/config", (req, res) => {
-  res.json({ tmdb: !!TMDB_KEY });
+  res.json({ tmdb: !!TMDB_KEY, db: !!db });
 });
 
-// GET /api/list?url=BASE64
-// Devuelve caché en memoria si existe. NUNCA va a FA solo.
-app.get("/api/list", (req, res) => {
+// GET /api/list — devuelve caché de DB. NUNCA va a FA solo.
+app.get("/api/list", async (req, res) => {
   const { url } = req.query;
   if (!url) return res.status(400).json({ error: "Falta url" });
   let listUrl;
@@ -340,7 +383,7 @@ app.get("/api/list", (req, res) => {
   if (!listUrl.includes("filmaffinity.com")) return res.status(400).json({ error: "Solo filmaffinity.com" });
 
   const key = makeKey(listUrl);
-  const hit = listCache[key];
+  const hit = await dbGetList(key);
   if (hit) {
     log("[CACHE] Hit", key, hit.films.length, "films");
     return res.json({ films: hit.films, cached: true, ts: hit.ts });
@@ -349,21 +392,22 @@ app.get("/api/list", (req, res) => {
   return res.json({ films: [], cached: false, ts: null, empty: true });
 });
 
-// POST /api/restore — el cliente envía su caché de localStorage al servidor tras un reinicio
-app.post("/api/restore", (req, res) => {
+// POST /api/restore — el cliente restaura su localStorage al servidor
+app.post("/api/restore", async (req, res) => {
   const { url, films, ts } = req.body;
   if (!url || !Array.isArray(films)) return res.status(400).json({ error: "Datos inválidos" });
   let listUrl;
   try { listUrl = /^https?:\/\//.test(url) ? url : atob(url); } catch { return res.status(400).json({ error: "URL inválida" }); }
   const key = makeKey(listUrl);
-  if (!listCache[key]) {
-    listCache[key] = { films, ts: ts || Date.now(), listUrl };
-    log("[RESTORE] Restaurados", films.length, "films para", key);
+  const existing = await dbGetList(key);
+  if (!existing) {
+    await dbSaveList(key, films, listUrl);
+    log("[RESTORE]", films.length, "films para", key);
   }
   res.json({ ok: true });
 });
 
-// POST /api/refresh?url=BASE64 — lanza job asíncrono
+// POST /api/refresh — lanza job asíncrono
 app.post("/api/refresh", (req, res) => {
   const { url } = req.query;
   if (!url) return res.status(400).json({ error: "Falta url" });
@@ -380,8 +424,8 @@ app.post("/api/refresh", (req, res) => {
   res.json({ status: "started" });
 });
 
-// GET /api/refresh-status?url=BASE64
-app.get("/api/refresh-status", (req, res) => {
+// GET /api/refresh-status
+app.get("/api/refresh-status", async (req, res) => {
   const { url } = req.query;
   if (!url) return res.status(400).json({ error: "Falta url" });
   let listUrl;
@@ -390,14 +434,14 @@ app.get("/api/refresh-status", (req, res) => {
   const job = jobs[key];
 
   if (!job) {
-    const cached = listCache[key];
+    const cached = await dbGetList(key);
     if (cached) return res.json({ status: "done", films: cached.films, ts: cached.ts });
     return res.json({ status: "idle" });
   }
-  if (job.status === "running")  return res.json({ status: "running", progress: job.progress });
-  if (job.status === "error")    return res.json({ status: "error",   error: job.error });
+  if (job.status === "running") return res.json({ status: "running", progress: job.progress });
+  if (job.status === "error")   return res.json({ status: "error",   error: job.error });
   if (job.status === "done") {
-    const cached = listCache[key];
+    const cached = await dbGetList(key);
     delete jobs[key];
     return res.json({ status: "done", films: cached?.films || [], ts: cached?.ts });
   }
@@ -415,18 +459,20 @@ app.get("/api/enrich/:faId", async (req, res) => {
   res.json(data);
 });
 
-// GET/POST /api/marks/:key
-app.get("/api/marks/:key", (req, res) => {
-  res.json({ marks: deletedMarks[req.params.key] || [] });
+// GET /api/marks/:key
+app.get("/api/marks/:key", async (req, res) => {
+  const marks = await dbGetMarks(req.params.key);
+  res.json({ marks });
 });
-app.post("/api/marks/:key", (req, res) => {
+// POST /api/marks/:key
+app.post("/api/marks/:key", async (req, res) => {
   const { marks } = req.body;
   if (!Array.isArray(marks)) return res.status(400).json({ error: "marks debe ser array" });
-  deletedMarks[req.params.key] = marks;
+  await dbSaveMarks(req.params.key, marks);
   res.json({ ok: true });
 });
 
-// GET /api/dump?url=BASE64 — devuelve el HTML crudo de FA (para depuración)
+// GET /api/dump — diagnóstico
 app.get("/api/dump", async (req, res) => {
   const { url } = req.query;
   if (!url) return res.status(400).send("Falta url");
@@ -434,26 +480,20 @@ app.get("/api/dump", async (req, res) => {
   try { listUrl = /^https?:\/\//.test(url) ? url : atob(url); } catch { return res.status(400).send("URL inválida"); }
   try {
     const html = await faFetch(listUrl);
-    const $ = cheerio.load(html);
-    // Devolver fragmento relevante y selectores encontrados para diagnóstico
-    const info = {
-      length:    html.length,
-      title:     $("title").text(),
+    const $    = cheerio.load(html);
+    res.json({
+      length: html.length, title: $("title").text(),
       selectors: {
         "user-list-film-item": $(".user-list-film-item").length,
         "fa-film":             $(".fa-film").length,
-        "user-movie-item":     $(".user-movie-item").length,
         "movie-card":          $(".movie-card").length,
         "data-movie-id":       $("[data-movie-id]").length,
         "a[href*=film]":       $("a[href*='/film']").length,
       },
       firstFilmLink: $("a[href*='/es/film']").first().attr("href") || "ninguno",
-      snippet:    html.slice(0, 2000),
-    };
-    res.json(info);
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
+      snippet: html.slice(0, 2000),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // Fallback → frontend
@@ -484,14 +524,11 @@ async function runRefreshJob(key, listUrl) {
     }
 
     allFilms = allFilms.reverse();
-
-    // Deduplicar por ID
     const seen = new Set();
     allFilms = allFilms.filter(f => { if (seen.has(f.id)) return false; seen.add(f.id); return true; });
+    log("[JOB] Total:", allFilms.length, "films");
 
-    log("[JOB] Total tras dedup:", allFilms.length, "films");
-
-    listCache[key] = { films: allFilms, ts: Date.now(), listUrl };
+    await dbSaveList(key, allFilms, listUrl);
     jobs[key].status = "done";
   } catch (err) {
     log("[JOB] Error:", err.message);
@@ -505,5 +542,8 @@ function makeKey(url) {
 }
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-app.listen(PORT, "0.0.0.0", () =>
-  log(`FA Viewer en puerto ${PORT} | TMDB: ${TMDB_KEY ? "✓" : "SIN CONFIGURAR"}`));
+// Arranque
+connectDB().then(() => {
+  app.listen(PORT, "0.0.0.0", () =>
+    log(`FA Viewer en puerto ${PORT} | TMDB: ${TMDB_KEY ? "✓" : "sin configurar"} | DB: ${db ? "MongoDB Atlas" : "memoria"}`));
+});
