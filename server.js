@@ -380,6 +380,8 @@ app.get("/api/debug-url", (req, res) => {
   const key = decoded ? makeKey(decoded) : null;
   res.json({ raw, decoded, key });
 });
+
+app.get("/api/config", (req, res) => {
   res.json({ tmdb: !!TMDB_KEY, db: !!db });
 });
 
