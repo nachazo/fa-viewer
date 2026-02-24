@@ -230,9 +230,6 @@
 // ── Constantes ─────────────────────────────────────────────────────────────
 const DEFAULT_URL = "https://www.filmaffinity.com/es/userlist.php?user_id=629775&list_id=1013";
 const API = window.FA_API_URL || "";
-const LS_KEY_FILMS = "fa_films_v1";
-const LS_KEY_TS    = "fa_ts_v1";
-const LS_KEY_MARKS = "fa_marks_v1";
 
 // ── Estado ─────────────────────────────────────────────────────────────────
 let allFilms   = [];
@@ -255,24 +252,6 @@ function getListUrl() {
 function listKey()    { return "fa_" + btoa(getListUrl()).replace(/[^a-z0-9]/gi,"").slice(0,20); }
 function listUrlB64() { return btoa(getListUrl()); }
 const urlParam = () => `url=${encodeURIComponent(listUrlB64())}`;
-
-// ── LocalStorage helpers ───────────────────────────────────────────────────
-function lsSave() {
-  try {
-    localStorage.setItem(LS_KEY_FILMS, JSON.stringify(allFilms));
-    localStorage.setItem(LS_KEY_TS, String(Date.now()));
-    localStorage.setItem(LS_KEY_MARKS, JSON.stringify([...deletedIds]));
-  } catch(e) { dbg("lsSave error: " + e.message); }
-}
-function lsLoadFilms() {
-  try { const s = localStorage.getItem(LS_KEY_FILMS); return s ? JSON.parse(s) : null; } catch { return null; }
-}
-function lsLoadTs() {
-  try { return parseInt(localStorage.getItem(LS_KEY_TS)) || null; } catch { return null; }
-}
-function lsLoadMarks() {
-  try { const s = localStorage.getItem(LS_KEY_MARKS); return s ? new Set(JSON.parse(s)) : new Set(); } catch { return new Set(); }
-}
 
 // ── UI helpers ─────────────────────────────────────────────────────────────
 function setProgress(p) { document.getElementById("pfill").style.width = p + "%"; }
@@ -328,7 +307,9 @@ function visible() {
 
 // ── Init ───────────────────────────────────────────────────────────────────
 async function init() {
-  deletedIds = lsLoadMarks();
+  // Cargar marcas desde servidor
+  const marks = await fetch(`${API}/api/marks/${listKey()}`).then(r => r.json()).catch(() => ({ marks: [] }));
+  deletedIds = new Set(marks.marks || []);
 
   setStatus("Cargando…");
   try {
@@ -407,7 +388,6 @@ async function pollRefresh() {
       if (d.status === "done") {
         allFilms = d.films || [];
         showLastUpdate(d.ts, false);
-        lsSave();
         setStatus(null);
         clearDbg();
         populateGenres();
@@ -460,7 +440,7 @@ function cardHTML(f, i) {
 // ── Delete ─────────────────────────────────────────────────────────────────
 async function toggleDel(id) {
   if (deletedIds.has(id)) deletedIds.delete(id); else deletedIds.add(id);
-  renderGrid(); lsSave(); syncMarks();
+  renderGrid(); syncMarks();
 }
 async function toggleDelModal() {
   if (!modalId) return;
