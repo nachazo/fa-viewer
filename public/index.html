@@ -257,7 +257,10 @@ function getListUrl() {
   } catch(e) { console.error("getListUrl error:", e); }
   return DEFAULT_URL;
 }
-function listKey()    { return "fa_" + btoa(getListUrl()).replace(/[^a-z0-9]/gi,"").slice(0,20); }
+function listKey() {
+  const b = btoa(getListUrl()).replace(/[^a-z0-9]/gi, "");
+  return "fa_" + b.slice(-20); // usar el FINAL donde las URLs difieren
+}
 function listUrlB64() { return btoa(getListUrl()); }
 const urlParam = () => `url=${encodeURIComponent(listUrlB64())}`;
 
