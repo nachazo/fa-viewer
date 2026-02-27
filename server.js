@@ -54,6 +54,15 @@ async function dbSaveMarks(key, marks) {
   if (!db) { mem.marks[key] = marks; return; }
   await db.collection("marks").updateOne({ key }, { $set: { key, marks, ts: Date.now() } }, { upsert: true });
 }
+async function dbGetFavs(key) {
+  if (!db) return mem.favs?.[key] || [];
+  const doc = await db.collection("favs").findOne({ key });
+  return doc?.marks || [];
+}
+async function dbSaveFavs(key, marks) {
+  if (!db) { if (!mem.favs) mem.favs = {}; mem.favs[key] = marks; return; }
+  await db.collection("favs").updateOne({ key }, { $set: { key, marks, ts: Date.now() } }, { upsert: true });
+}
 async function dbGetTmdb(faId) {
   if (!db) return mem.tmdb[faId] || null;
   return await db.collection("tmdb").findOne({ faId }, { projection: { _id: 0 } });
@@ -353,13 +362,17 @@ async function tmdbEnrich(film) {
     const dr     = await fetch(detailUrl, { timeout: 8000 });
     const detail = dr.ok ? await dr.json() : result;
 
-    const synopsis   = detail.overview || result.overview || null;
-    const duration   = mediaType === "series" ? (detail.episode_run_time?.[0] || null) : (detail.runtime || null);
-    const posterPath = detail.poster_path || result.poster_path || null;
-    const poster     = posterPath ? `https://image.tmdb.org/t/p/w500${posterPath}` : null;
-    const genres     = (detail.genres || []).map(g => g.name).filter(Boolean);
+    const synopsis    = detail.overview || result.overview || null;
+    const duration    = mediaType === "series" ? (detail.episode_run_time?.[0] || null) : (detail.runtime || null);
+    const posterPath  = detail.poster_path || result.poster_path || null;
+    const poster      = posterPath ? `https://image.tmdb.org/t/p/w500${posterPath}` : null;
+    const genres      = (detail.genres || []).map(g => g.name).filter(Boolean);
 
-    const data = { synopsis, duration, type: mediaType, genres, ...(poster ? { poster } : {}) };
+    // País de origen (primero de la lista, traducido si es posible)
+    const originCodes = detail.origin_country || detail.production_countries?.map(c => c.iso_3166_1) || [];
+    const country     = originCodes.length > 0 ? isoToSpanish(originCodes[0]) : null;
+
+    const data = { synopsis, duration, type: mediaType, genres, ...(poster ? { poster } : {}), ...(country ? { country } : {}) };
     tmdbCache[cacheKey] = { data, ts: Date.now() };
     await dbSaveTmdb(film.id, data);
     return data;
@@ -473,11 +486,22 @@ app.get("/api/marks/:key", async (req, res) => {
   const marks = await dbGetMarks(req.params.key);
   res.json({ marks });
 });
-// POST /api/marks/:key
 app.post("/api/marks/:key", async (req, res) => {
   const { marks } = req.body;
   if (!Array.isArray(marks)) return res.status(400).json({ error: "marks debe ser array" });
   await dbSaveMarks(req.params.key, marks);
+  res.json({ ok: true });
+});
+
+// GET/POST /api/favs/:key — misma estructura que marks pero colección separada
+app.get("/api/favs/:key", async (req, res) => {
+  const marks = await dbGetFavs(req.params.key);
+  res.json({ marks });
+});
+app.post("/api/favs/:key", async (req, res) => {
+  const { marks } = req.body;
+  if (!Array.isArray(marks)) return res.status(400).json({ error: "marks debe ser array" });
+  await dbSaveFavs(req.params.key, marks);
   res.json({ ok: true });
 });
 
@@ -570,8 +594,26 @@ async function runRefreshJob(key, listUrl) {
 
 function makeKey(url) {
   const b = Buffer.from(url).toString("base64").replace(/[^a-z0-9]/gi, "");
-  return "fa_" + b.slice(-20); // usar el FINAL donde las URLs difieren
+  return "fa_" + b.slice(-20);
 }
+
+// ISO 3166-1 alpha-2 → nombre en español
+const ISO_ES = {
+  US:"Estados Unidos",GB:"Reino Unido",FR:"Francia",ES:"España",DE:"Alemania",
+  IT:"Italia",JP:"Japón",KR:"Corea del Sur",CN:"China",MX:"México",AR:"Argentina",
+  BR:"Brasil",CA:"Canadá",AU:"Australia",SE:"Suecia",DK:"Dinamarca",NO:"Noruega",
+  FI:"Finlandia",BE:"Bélgica",NL:"Países Bajos",PL:"Polonia",RU:"Rusia",IN:"India",
+  IE:"Irlanda",AT:"Austria",CH:"Suiza",PT:"Portugal",RO:"Rumania",CZ:"República Checa",
+  HU:"Hungría",IL:"Israel",IR:"Irán",TR:"Turquía",CO:"Colombia",CL:"Chile",
+  PE:"Perú",VE:"Venezuela",UY:"Uruguay",CU:"Cuba",HK:"Hong Kong",TW:"Taiwán",
+  TH:"Tailandia",VN:"Vietnam",ID:"Indonesia",PH:"Filipinas",MA:"Marruecos",
+  NG:"Nigeria",ZA:"Sudáfrica",SN:"Senegal",GR:"Grecia",RS:"Serbia",HR:"Croacia",
+  SI:"Eslovenia",SK:"Eslovaquia",BG:"Bulgaria",LT:"Lituania",LV:"Letonia",
+  EE:"Estonia",UA:"Ucrania",KZ:"Kazajistán",GE:"Georgia",AM:"Armenia",AZ:"Azerbaiyán",
+  RO:"Rumania",MK:"Macedonia del Norte",BA:"Bosnia y Herzegovina",AL:"Albania",
+  IS:"Islandia",LU:"Luxemburgo",MT:"Malta",CY:"Chipre",
+};
+function isoToSpanish(code) { return ISO_ES[code] || code; }
 function fromB64(s) {
   // Usar Buffer (Node.js) en lugar de atob — más robusto con caracteres especiales
   return Buffer.from(s, "base64").toString("utf8");
