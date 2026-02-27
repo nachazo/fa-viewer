@@ -94,8 +94,15 @@
     @media(hover:hover){.card:hover .delbtn{opacity:1}}
     @media(hover:none){.delbtn{opacity:.85}}
     .delbtn.on{opacity:1!important;background:rgba(239,68,68,.9);border-color:#ef4444}
-    .delover{position:absolute;inset:0;background:rgba(239,68,68,.1);display:flex;align-items:center;justify-content:center;pointer-events:none}
-    .dellabel{background:rgba(239,68,68,.9);color:#fff;font-weight:900;font-size:9px;letter-spacing:.15em;padding:4px 10px;border-radius:4px;transform:rotate(-8deg);text-transform:uppercase}
+    .favbtn{position:absolute;top:7px;right:39px;z-index:10;width:28px;height:28px;background:rgba(0,0,0,.55);border:1.5px solid rgba(255,255,255,.2);backdrop-filter:blur(4px);border-radius:50%;color:#fff;font-size:14px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .15s;opacity:0}
+    @media(hover:hover){.card:hover .favbtn{opacity:1}}
+    @media(hover:none){.favbtn{opacity:.85}}
+    .favbtn.on{opacity:1!important;background:rgba(245,166,35,.85);border-color:var(--accent)}
+    .delover{position:absolute;inset:0;background:rgba(239,68,68,.28);display:flex;align-items:center;justify-content:center;pointer-events:none;border:2px solid rgba(239,68,68,.6)}
+    .dellabel{background:rgba(239,68,68,.95);color:#fff;font-weight:900;font-size:9px;letter-spacing:.15em;padding:4px 10px;border-radius:4px;transform:rotate(-8deg);text-transform:uppercase;box-shadow:0 2px 8px rgba(0,0,0,.5)}
+    .mfavbtn{display:inline-flex;align-items:center;gap:5px;background:transparent;border:1px solid var(--border);color:var(--muted);padding:10px 13px;border-radius:10px;font-weight:700;font-size:12px;font-family:inherit;cursor:pointer;transition:all .15s}
+    .mfavbtn.on{background:rgba(245,166,35,.12);border-color:rgba(245,166,35,.4);color:var(--accent)}
+    .mcountry{font-size:12px;color:var(--muted);margin-bottom:10px;display:flex;align-items:center;gap:5px;flex-wrap:wrap}
     .cinfo{padding:8px 10px 10px}
     .ctitle{font-size:12px;font-weight:600;color:var(--text);line-height:1.3;font-family:'Syne',sans-serif;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;margin-bottom:2px}
     .cmeta{font-size:10px;color:var(--muted)}
@@ -187,8 +194,9 @@
     <div class="count" id="count-lbl"></div>
 
     <button class="ibtn" id="only-del-btn" onclick="toggleOnlyDel()" title="Solo marcados para borrar">🗑</button>
+    <button class="ibtn" id="only-fav-btn" onclick="toggleOnlyFav()" title="Solo favoritos">⭐</button>
     <button class="ibtn" id="hide-del-btn" onclick="toggleHideDel()" title="Ocultar marcados">👁</button>
-    <button class="ibtn" id="refresh-btn"  onclick="doRefresh()">
+    <button class="ibtn" id="refresh-btn"  onclick="doRefresh()" style="display:none">
       <span id="refresh-ic">↺</span><span class="hxs"> Actualizar</span>
     </button>
     <button class="ibtn" onclick="toggleDark()"><span id="dark-ic">☀</span></button>
@@ -212,10 +220,12 @@
         <div class="mbadges" id="mbadges"></div>
         <h2 class="mtitle" id="mtitle"></h2>
         <div class="mmeta" id="mmeta"></div>
+        <div class="mcountry" id="mcountry"></div>
         <div id="mgenres" style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:12px"></div>
         <p id="msynopsis" class="msynopsis"></p>
         <div class="mactions">
           <a class="falink" id="falink" href="#" target="_blank" rel="noopener">Ver en FilmAffinity ↗</a>
+          <button class="mfavbtn" id="mfavbtn" onclick="toggleFavModal()">⭐ Favorito</button>
           <button class="mdelbtn" id="mdelbtn" onclick="toggleDelModal()">✕ Marcar</button>
         </div>
         <p class="tmdb-note" id="tmdb-note"></p>
@@ -228,41 +238,43 @@
 
 <script>
 // ── Constantes ─────────────────────────────────────────────────────────────
-const DEFAULT_URL = "https://www.filmaffinity.com/es/userlist.php?user_id=629775&list_id=1013";
+const DEFAULT_LIST_ID = "1013";
+const DEFAULT_USER_ID = "629775";
 const API = window.FA_API_URL || "";
 
 // ── Estado ─────────────────────────────────────────────────────────────────
-let allFilms   = [];
-let deletedIds = new Set();
-let filter     = "all";
-let searchQ    = "";
-let minRating  = 0;
+let allFilms    = [];
+let deletedIds  = new Set();
+let favIds      = new Set();
+let filter      = "all";
+let searchQ     = "";
+let minRating   = 0;
 let genreFilter = "";
-let hideDel    = false;
-let onlyDel    = false;
-let dark       = true;
-let refreshing = false;
-let modalId    = null;
+let hideDel     = false;
+let onlyDel     = false;
+let onlyFav     = false;
+let dark        = true;
+let refreshing  = false;
+let modalId     = null;
 
 // ── URL ────────────────────────────────────────────────────────────────────
 function getListUrl() {
-  try {
-    const raw = new URLSearchParams(location.search).get("url");
-    if (!raw) return DEFAULT_URL;
-    // Decodificar: URLSearchParams ya decodifica %2F etc., pero hay que restaurar
-    // los caracteres base64 que pudieran haberse alterado
-    const b64 = raw.replace(/ /g, "+"); // URLSearchParams convierte + en espacio
-    const decoded = atob(b64);
-    if (decoded.includes("filmaffinity.com")) return decoded;
-  } catch(e) { console.error("getListUrl error:", e); }
-  return DEFAULT_URL;
+  const p = new URLSearchParams(location.search);
+  const listId  = p.get("id")      || DEFAULT_LIST_ID;
+  const userId  = p.get("user_id") || DEFAULT_USER_ID;
+  return `https://www.filmaffinity.com/es/userlist.php?user_id=${userId}&list_id=${listId}`;
 }
 function listKey() {
   const b = btoa(getListUrl()).replace(/[^a-z0-9]/gi, "");
-  return "fa_" + b.slice(-20); // usar el FINAL donde las URLs difieren
+  return "fa_" + b.slice(-20);
 }
 function listUrlB64() { return btoa(getListUrl()); }
 const urlParam = () => `url=${encodeURIComponent(listUrlB64())}`;
+
+// Mostrar botón actualizar solo si ?actualizar=true
+if (new URLSearchParams(location.search).get("actualizar") === "true") {
+  document.getElementById("refresh-btn").style.display = "";
+}
 
 // ── UI helpers ─────────────────────────────────────────────────────────────
 function setProgress(p) { document.getElementById("pfill").style.width = p + "%"; }
@@ -307,6 +319,7 @@ function visible() {
     const id = f.id || f.title;
     if (onlyDel && !deletedIds.has(id)) return false;
     if (hideDel &&  deletedIds.has(id)) return false;
+    if (onlyFav && !favIds.has(id))     return false;
     if (filter === "movies" && f.type === "series") return false;
     if (filter === "series" && f.type !== "series") return false;
     if (minRating > 0 && (f.rating == null || f.rating < minRating)) return false;
@@ -318,9 +331,13 @@ function visible() {
 
 // ── Init ───────────────────────────────────────────────────────────────────
 async function init() {
-  // Cargar marcas desde servidor
-  const marks = await fetch(`${API}/api/marks/${listKey()}`).then(r => r.json()).catch(() => ({ marks: [] }));
-  deletedIds = new Set(marks.marks || []);
+  // Cargar marcas y favoritos desde servidor
+  const [marksR, favsR] = await Promise.all([
+    fetch(`${API}/api/marks/${listKey()}`).then(r => r.json()).catch(() => ({ marks: [] })),
+    fetch(`${API}/api/favs/${listKey()}`).then(r => r.json()).catch(() => ({ marks: [] })),
+  ]);
+  deletedIds = new Set(marksR.marks || []);
+  favIds     = new Set(favsR.marks  || []);
 
   setStatus("Cargando…");
   try {
@@ -430,6 +447,7 @@ function renderGrid() {
 function cardHTML(f, i) {
   const id    = f.id || f.title;
   const isDel = deletedIds.has(id);
+  const isFav = favIds.has(id);
   const tb    = f.type ? `<div class="tbadge ${f.type==="series"?"tseries":"tmovie"}">${f.type==="series"?"SERIE":"FILM"}</div>` : "";
   const rb    = f.rating ? `<div class="rbadge">★ ${f.rating}</div>` : "";
   const dov   = isDel ? `<div class="delover"><span class="dellabel">BORRAR</span></div>` : "";
@@ -437,8 +455,9 @@ function cardHTML(f, i) {
     ? `<img src="${esc(f.poster)}" alt="${esc(f.title)}" loading="lazy" onerror="this.style.display='none'">`
     : `<div class="pph">🎬</div>`;
   const meta  = [f.year, f.duration ? (f.type==="series" ? f.duration+"m/ep" : f.duration+"min") : null].filter(Boolean).join(" · ");
-  return `<div class="card${isDel?" deleted":""}" id="card-${f.id}" onclick="openModal('${f.id}')" style="animation-delay:${i*.02}s">
+  return `<div class="card${isDel?" deleted":""}${isFav?" fav":""}" id="card-${f.id}" onclick="openModal('${f.id}')" style="animation-delay:${i*.02}s">
     <div class="pwrap">${img}<div class="grad"></div>${tb}${rb}${dov}
+      <button class="favbtn${isFav?" on":""}" onclick="event.stopPropagation();toggleFav('${id}')" title="${isFav?"Quitar favorito":"Marcar favorito"}">⭐</button>
       <button class="delbtn${isDel?" on":""}" onclick="event.stopPropagation();toggleDel('${id}')" title="${isDel?"Quitar":"Marcar para borrar"}">✕</button>
     </div>
     <div class="cinfo">
@@ -446,6 +465,29 @@ function cardHTML(f, i) {
       <div class="cmeta">${meta}</div>
     </div>
   </div>`;
+}
+
+// ── Favoritos ──────────────────────────────────────────────────────────────
+async function toggleFav(id) {
+  if (favIds.has(id)) favIds.delete(id); else favIds.add(id);
+  renderGrid(); syncFavs();
+}
+async function toggleFavModal() {
+  if (!modalId) return;
+  await toggleFav(modalId); updateModalFavBtn(modalId);
+}
+function updateModalFavBtn(id) {
+  const btn = document.getElementById("mfavbtn"); if (!btn) return;
+  const on = favIds.has(id);
+  btn.className = "mfavbtn" + (on?" on":"");
+}
+async function syncFavs() {
+  try {
+    await fetch(`${API}/api/favs/${listKey()}`, {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ marks: [...favIds] }),
+    });
+  } catch {}
 }
 
 // ── Delete ─────────────────────────────────────────────────────────────────
@@ -494,6 +536,17 @@ function fillModal(film) {
   if (film.year)     meta.push("📅 " + film.year);
   if (film.duration) meta.push("⏱ " + (film.type==="series" ? film.duration+" min/ep" : film.duration+" min"));
   document.getElementById("mmeta").innerHTML = meta.join(" &nbsp;·&nbsp; ");
+
+  // País con bandera
+  const countryEl = document.getElementById("mcountry");
+  if (film.country) {
+    const flag = countryToFlag(film.country);
+    countryEl.innerHTML = `${flag} ${esc(film.country)}`;
+    countryEl.style.display = "flex";
+  } else {
+    countryEl.style.display = "none";
+  }
+
   const gEl = document.getElementById("mgenres");
   gEl.innerHTML = (film.genres || []).map(g =>
     `<span style="font-size:10px;font-weight:700;padding:3px 9px;border-radius:20px;background:rgba(255,255,255,.07);border:1px solid var(--border);color:var(--text2);cursor:pointer" onclick="closeModal();onGenreFilter('${esc(g)}');document.getElementById('genre-filter').value='${esc(g)}';">${esc(g)}</span>`
@@ -503,7 +556,33 @@ function fillModal(film) {
   se.textContent = film.synopsis || (film._enriched ? "Sin sinopsis disponible" : "Cargando sinopsis…");
   document.getElementById("falink").href = faUrl;
   updateModalDelBtn(film.id);
+  updateModalFavBtn(film.id);
   document.getElementById("tmdb-note").textContent = film._enriched && film.synopsis ? "Sinopsis vía The Movie Database" : "";
+}
+
+// Convierte nombre de país a emoji bandera (ISO 3166-1 alpha-2)
+const COUNTRY_MAP = {
+  "Estados Unidos":["US"],"Francia":["FR"],"Reino Unido":["GB"],"España":["ES"],
+  "Alemania":["DE"],"Italia":["IT"],"Japón":["JP"],"Corea del Sur":["KR"],
+  "China":["CN"],"México":["MX"],"Argentina":["AR"],"Brasil":["BR"],
+  "Canadá":["CA"],"Australia":["AU"],"Suecia":["SE"],"Dinamarca":["DK"],
+  "Noruega":["NO"],"Finlandia":["FI"],"Bélgica":["BE"],"Países Bajos":["NL"],
+  "Holanda":["NL"],"Polonia":["PL"],"Rusia":["RU"],"India":["IN"],
+  "Irlanda":["IE"],"Austria":["AT"],"Suiza":["CH"],"Portugal":["PT"],
+  "Rumania":["RO"],"República Checa":["CZ"],"Hungría":["HU"],"Israel":["IL"],
+  "Irán":["IR"],"Turquía":["TR"],"Colombia":["CO"],"Chile":["CL"],
+  "Perú":["PE"],"Venezuela":["VE"],"Uruguay":["UY"],"Cuba":["CU"],
+  "Hong Kong":["HK"],"Taiwán":["TW"],"Tailandia":["TH"],"Vietnam":["VN"],
+  "Indonesia":["ID"],"Filipinas":["PH"],"Marruecos":["MA"],"Nigeria":["NG"],
+  "Sudáfrica":["ZA"],"Senegal":["SN"],"Grecia":["GR"],"Serbia":["RS"],
+  "Croacia":["HR"],"Eslovenia":["SI"],"Eslovaquia":["SK"],"Bulgaria":["BG"],
+  "Lituania":["LT"],"Letonia":["LV"],"Estonia":["EE"],"Ucrania":["UA"],
+  "Kazajistán":["KZ"],"Georgia":["GE"],"Armenia":["AM"],"Azerbaiyán":["AZ"],
+};
+function countryToFlag(country) {
+  const codes = COUNTRY_MAP[country];
+  if (!codes) return "🌍";
+  return codes[0].toUpperCase().split("").map(c => String.fromCodePoint(0x1F1E6 + c.charCodeAt(0) - 65)).join("");
 }
 function closeModal() {
   document.getElementById("overlay").style.display = "none";
@@ -530,6 +609,11 @@ function populateGenres() {
   const cur = sel.value;
   sel.innerHTML = `<option value="">Género</option>` +
     sorted.map(g => `<option value="${esc(g)}"${g===cur?" selected":""}>${esc(g)}</option>`).join("");
+}
+function toggleOnlyFav() {
+  onlyFav = !onlyFav;
+  document.getElementById("only-fav-btn").classList.toggle("on", onlyFav);
+  renderGrid();
 }
 function toggleHideDel() {
   if (onlyDel) { onlyDel = false; document.getElementById("only-del-btn").classList.remove("on"); }
